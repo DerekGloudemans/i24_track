@@ -1,6 +1,4 @@
-def tracker_dummy():
-	print("Tracker Dummy Pass")
-
+from .TrackState import TrackState
 
 
 class Tracker():
@@ -8,6 +6,9 @@ class Tracker():
 		raise NotImplementedError
 
 	def preprocess(self):
+        """
+        Receives a TrackState object as input, as well as the times for 
+        """
 		raise NotImplementedError
 
 	def parse_detections(self):
@@ -17,19 +18,4 @@ class Tracker():
 		raise NotImplementedError
 
 
-class TrackState():
 
-	def __init__(self):
-		pass
-	
-	def as_dict(self):
-		pass
-
-	def as_tensors(self):
-		pass
-
-	def plot(self):
-		pass
-
-	def write_db(self):
-		pass
