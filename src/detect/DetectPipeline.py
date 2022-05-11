@@ -34,13 +34,13 @@ class DetectPipeline():
             result = self.detector(frames)
         return result
         
-    def post_detect(self,detection_result):
+    def post_detect(self,detection_result,priors = None):
         return detection_result
 
-    def __call__(self,frames):
+    def __call__(self,frames,priors = None):
         prepped_frames = self.prep_frames(frames)
         detection_result = self.detect(prepped_frames)
-        output = self.post_detect(detection_result)
+        output = self.post_detect(detection_result,priors = priors)
         return output
 
 

@@ -8,3 +8,7 @@ test/__pycache__/
 src/detect/__pycache__/
 
 src/__pycache__/
+
+data/weights/
+
+src/mc/__pycache__/
