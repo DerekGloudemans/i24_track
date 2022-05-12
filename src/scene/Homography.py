@@ -790,7 +790,7 @@ def load_i24_csv(file):
         
         return headers,data
 
-class Homography_Wrapper():
+class HomographyWrapper():
     """
     This class was added as a workaround for the following problem:  multiple
     correspondences for a single camera defined locally such that one or the other 
@@ -855,8 +855,29 @@ class Homography_Wrapper():
         boxes[ind,:] = boxes2[ind,:]        
         return boxes
     
-    def im_to_state(self,points,name = None, heights = None):
-        return self.space_to_state(self.im_to_space(points,name = name, heights = heights))
+    def _i2st(self,points,heights,name = None):
+            return self.space_to_state(self.im_to_space(points,name = name, heights = heights))
+        
+
+    def im_to_state(self,points,classes = None,name = None,heights = None):
+        if heights is None:
+            if classes is not None:
+                # get initial state boxes with guessed heights
+                heights = self.hg1.guess_heights(classes)
+                boxes = self._i2st(points,heights = heights,name = name)
+            
+                # project guess-height boxes back into image
+                repro_boxes = self.state_to_im(boxes, name = name)
+            
+                # prefine guessed height based on the size of the reproj. error relative to input height
+                heights = self.hg1.height_from_template(repro_boxes,heights,points)
+            else:
+                raise ValueError("Either classes or heights must be specified for homography im to state conversion")
+                
+        boxes = self._i2st(points,heights = heights,name = name)
+        return boxes
+    
+    
 
     def state_to_im(self,points,name = None):
         return self.space_to_im(self.state_to_space(points),name = name)
@@ -954,14 +975,14 @@ if True and __name__ == "__main__":
     hg1 = get_homographies(save_file = "EB_homography5.cpkl",directory = directory,direction = "EB",fit_Z = False)
     hg2 = get_homographies(save_file = "WB_homography5.cpkl",directory = directory,direction = "WB",fit_Z = False)
     
-    hgw = Homography_Wrapper(hg1 = hg1,hg2 = hg2)
+    hgw = HomographyWrapper(hg1 = hg1,hg2 = hg2)
     
-    frame = hg1.plot_boxes(frame,boxes,color = (0,0,255))
-    test_boxes = hgw.im_to_state(boxes,name = camera_name, heights = hgw.guess_heights(classes))
-    frame = hgw.plot_state_boxes(frame,test_boxes,color = (255,0,0),secondary_color = (0,255,0), name = camera_name)
-    cv2.imshow("frame",frame)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
+    # frame = hg1.plot_boxes(frame,boxes,color = (0,0,255))
+    # test_boxes = hgw.im_to_state(boxes,name = camera_name, heights = hgw.guess_heights(classes))
+    # frame = hgw.plot_state_boxes(frame,test_boxes,color = (255,0,0),secondary_color = (0,255,0), name = camera_name)
+    # cv2.imshow("frame",frame)
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
     
     
     

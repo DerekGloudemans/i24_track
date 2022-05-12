@@ -12,3 +12,5 @@ src/__pycache__/
 data/weights/
 
 src/mc/__pycache__/
+
+*.pyc

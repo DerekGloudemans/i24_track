@@ -44,8 +44,9 @@ class TrackState():
         # initialize Kalman filter
         self.kf = Torch_KF(self.device,INIT = kf_params)
         
-        
-        
+    def __len__(self):        
+        return self.kf.X.shape[0]
+     
     def __call__(self,target_time = None,with_direction = False,mode = "tensor"):
         """
         returns current state of tracked objects
@@ -68,10 +69,9 @@ class TrackState():
             state_dict = dict([(ids[i],states[i]) for i in range(len(ids))])
             return state_dict
         
-    def add(self,detections,directions,detection_times,labels,scores,init_speed = False,classes = None):
+    def add(self,detections,directions,detection_times,labels,scores,init_speed = False):
         
         new_ids = []
-        new_classes = []
         
         for i in range(len(detections)):                
             new_ids.append(self._next_obj_id)
@@ -119,10 +119,13 @@ class TrackState():
     
         return removals
     
+    def get_dt(self,target_times,idxs = None):
+        return self.kf.get_dt(target_times,idxs = None)
+    
     def predict(self,dt = None):
         self.kf.predict(dt = dt)
     
-    def update(self,detections,obj_ids,classes,confs,measurement_idx = 1):
+    def update(self,detections,obj_ids,classes,confs,measurement_idx = 0):
     
         # update kf states
         self.kf.update(detections,obj_ids,measurement_idx = measurement_idx)
