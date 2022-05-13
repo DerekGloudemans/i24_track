@@ -2,18 +2,16 @@ import torch
 
 
 from i24_configparse.parse    import parse_cfg
-from src.track.Tracker        import get_Tracker
-from src.track.TrackState     import TrackState
-from src.detect.detectors     import get_Pipeline
-from src.scene.Map            import get_DeviceMap
-from src.scene.Homography     import Homography_Wrapper
-from src.detect.DetectorBank  import DetectorBank
+from src.track.tracker        import get_Tracker, get_Associator
+from src.track.trackstate     import TrackState
+from src.detect.pipeline      import get_Pipeline
+from src.scene.devicemap      import get_DeviceMap
+from src.scene.homography     import HomographyWrapper
+from src.detect.devicebank    import DeviceBank
 from src.load                 import MCLoader
 from src.db_write             import DBWriter
 
 
-# get available devices
-devices = torch.get_devices()
 
 
 
@@ -21,6 +19,8 @@ devices = torch.get_devices()
 params = parse_cfg("run.spec","DEBUG")
 
 # verify config notion of GPUs matches torch.cuda notion of available devices
+# get available devices
+assert max(params.cuda_devices) < torch.device_count()
 
 
 # initialize multi-camera loader
@@ -34,17 +34,21 @@ dmap = get_DeviceMap(params.device_map)
 pipelines = params.pipelines.split(",")
 pipelines = [get_Pipeline(item) for item in pipelines]
 
+associators = params.associators.split(",")
+associators = [get_Associator(item) for item in associators]
 
 # initialize tracker
 tracker = get_Tracker
 
-# add Tracker.associate function to each pipeline
+# add Associate function to each pipeline
+for i in range(len(pipelines)):
+    pipelines[i].associate = associators[i]
 
 # initialize Homography object
-hg = Homography_Wrapper()
+hg = HomographyWrapper()
 
 # initialize DetectorBank
-dbank = DetectorBank(devices,pipelines,hg)
+dbank = DeviceBank(params.cuda_devices,pipelines,hg)
 
 
 
@@ -82,9 +86,9 @@ while True:
     
     # map and mov
     cam_idx_names = None # map idxs to names here
-    #device_priors = dmap.map_priors(priors,device_idxs,camera_idxs)
+    #device_priors = dmap.route_objects(obj_ids,priors,device_idxs,camera_idxs)
     
-    detections,associations = dbank(obj_ids,priors,frames,device_idxs,camera_idxs,pipeline_idx = 0)
+    detections,associations = dbank(prior_stack,frame_stack,pipeline_idx = 0)
     
     terminated_objects = tracker.post_process(detections,associations)
     

@@ -6,7 +6,23 @@ os.environ["user_config_directory"] = "/home/worklab/Documents/i24/i24_track/con
 
 
 # imports for specific detectors
-from retinanet_3D.retinanet.model import resnet50 as Retinanet3D
+from .retinanet_3D.retinanet.model import resnet50 as Retinanet3D
+
+
+def get_Pipeline(name):
+    """
+    getter function that takes a string (class name) input and returns an instance
+    of the named class
+    """
+    if name == "RetinanetFullFramePipeline":
+        pipeline = RetinanetFullFramePipeline()
+    elif name == "RetinanetCropFramePipeline":
+        pipeline = RetinanetCropFramePipeline()
+    else:
+        raise NotImplementedError("No DetectPipeline child class named {}".format(name))
+    
+    return pipeline
+    
 
 class DetectPipeline():
     """
@@ -41,6 +57,9 @@ class DetectPipeline():
         prepped_frames = self.prep_frames(frames)
         detection_result = self.detect(prepped_frames)
         output = self.post_detect(detection_result,priors = priors)
+        
+        # TODO add associate here
+        
         return output
 
 
@@ -51,10 +70,10 @@ class RetinanetFullFramePipeline(DetectPipeline):
     DetectPipeline that applies Retinanet Detector on full object frames
     """
     
-    def __init__(self):
+    def __init__(self,hg,device_id=-1):
         
         # load configuration file parameters
-        self = parse_cfg("0",obj = self)
+        self = parse_cfg("DEFAULT",obj = self)
 
         
         # initialize detector
@@ -69,12 +88,12 @@ class RetinanetFullFramePipeline(DetectPipeline):
 
         
         # configure detector
-        self.device = torch.device("cuda:{}".format(self.device_id))
+        self.device = torch.device("cuda:{}".format(device_id) if device_id != -1 else "cpu")
         torch.cuda.set_device(self.device_id)
         self.detector = self.detector.to(self.device)
         self.detector.eval()
     
-        
+        self.hg = hg # store homography
 
         
     def post_detect(self,detection_result):

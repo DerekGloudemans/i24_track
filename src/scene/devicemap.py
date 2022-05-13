@@ -1,9 +1,25 @@
 from i24_configparse.parse import parse_cfg
 import configparser
-from homography import Homography_Wrapper
 import torch
 import re
     
+
+
+def get_DeviceMap(name):
+    """
+    getter function that takes a string (class name) input and returns an instance
+    of the named class
+    """
+    if name == "DeviceMap":
+        dmap = DeviceMap()
+    elif name == "HeuristicDeviceMap":
+        dmap = HeuristicDeviceMap()
+    else:
+        raise NotImplementedError("No DeviceMap child class named {}".format(name))
+    
+    return dmap
+
+
     
 class DeviceMap():
     """
@@ -29,21 +45,11 @@ class DeviceMap():
         self._parse_cameras(self.camera_extents_file)
         
         # convert camera extents to tensor
-        cam_ids = []
+        cam_names = []
         extents = []
-        [(cam_ids.append(key),extents.append(self.cam_extents[key])) for key in self.cam_extents.keys()]
-        self.cam_ids = cam_ids
+        [(cam_names.append(key),extents.append(self.cam_extents[key])) for key in self.cam_extents.keys()]
+        self.cam_names = cam_names
         self.cam_extents = torch.tensor(extents)
-        
-        
-        priority_dict = {"c1":1,
-                    "c2":100,
-                    "c3":1000,
-                    "c4":1000,
-                    "c5":100,
-                    "c6":1}
-
-        self.priority = [priority_dict[re.search("c\d",cam).group(0)] for cam in self.cam_ids]
 
         
         # load self.cam_devices
@@ -53,6 +59,13 @@ class DeviceMap():
         if map_fn is None:
             map_fn = self.default_map_cameras
         self.map_cameras = map_fn
+        
+        
+        # note that self.cam_names is THE ordering of cameras, and all other camera orderings should be relative to this ["p1c1","p1c2", etc]
+        # self.gpu_cam_ids is THE ordering of cameras per GPU (list of lists) [0,0,0,1,1,1 etc.]
+        # and self.cam_devices[i] contains device index for camera i in self.cam_ids [[p1c1,p1c2],[p1c3,p1c4] etc]
+        self.gpu_cam_names = [[] for i in range(self.n_devices)]
+        [self.gpu_cam_names[self.cam_devices[i]].append(self.cam_names[i]) for i in range(len(self.cam_names))]
         
         
     def _parse_cameras(self,extents_file):
@@ -93,18 +106,46 @@ class DeviceMap():
     def map_cameras(self):
         raise NotImplementedError
     
-    def map_devices(self,cameras):
+    def map_devices(self,cam_map):
         """
         :param cameras - list of camera names of size n
         :return gpus - tensor of GPU IDs (int) for each of n input cameras
         """
         
-        gpus = torch.tensor([self.cam_devices[camera] for camera in cameras])
-        return gpus
+        gpu_map = torch.tensor([self.cam_devices[camera] for camera in cam_map])
+        return gpu_map
     
+    def __call__(self,tstate,ts):
+        cam_map = self.map_cameras(tstate,ts)
+        gpu_map = self.map_devices(cam_map)
+        
+        # get times
+        
+        return 
+    
+    def route_objects(self,cam_map,gpu_map,obj_ids,obj_priors):
+        """
+        
+        """
+        pass
+        
 
     
-class HeuristicDeviceMap1(DeviceMap):
+class HeuristicDeviceMap(DeviceMap):
+    
+    def __init__(self):
+        super(HeuristicDeviceMap, self).__init__()
+        
+        # add camera priority
+        priority_dict = {"c1":1,
+                    "c2":100,
+                    "c3":1000,
+                    "c4":1000,
+                    "c5":100,
+                    "c6":1}
+
+        self.priority = [priority_dict[re.search("c\d",cam).group(0)] for cam in self.cam_names]
+    
     def map_cameras(self,tstate,ts):
         """
         MAPPING:
