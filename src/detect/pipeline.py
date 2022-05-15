@@ -35,14 +35,16 @@ class DetectPipeline():
     def __init__(self):
         raise NotImplementedError
         
-    def prep_frames(self,frames):
+    def prep_frames(self,frames,priors = None):
         """
         Receives a stack of frames as input and returns a stack of frames as output.
         All frames in each stack are expected to be on the same device as the DetectPipeline object. 
-        In the default case, no changes are made
+        In the default case, no changes are made. Note that if priors are used, they should 
+        be converted to im pixels here
         param: frames (tensor of shape [B,3,H,W])
         return: frames (tensor of shape [B,3,H,W])
         """
+        
         return frames
         
     def detect(self,frames):
@@ -51,14 +53,21 @@ class DetectPipeline():
         return result
         
     def post_detect(self,detection_result,priors = None):
+        
+        """
+        At a minimum this function should apply hg to convert to state/space
+        """
         return detection_result
 
     def __call__(self,frames,priors = None):
-        prepped_frames = self.prep_frames(frames)
-        detection_result = self.detect(prepped_frames)
-        output = self.post_detect(detection_result,priors = priors)
+        [ids,priors,frame_idx,cam_name] = priors
         
-        # TODO add associate here
+        prepped_frames = self.prep_frames(frames,priors = priors)
+        detection_result = self.detect(prepped_frames)
+        detections,classes,confs  = self.post_detect(detection_result,priors = priors)
+        
+        # Associate
+        output = self.associate(ids,priors,detections,self.hg)
         
         return output
 
@@ -99,7 +108,15 @@ class RetinanetFullFramePipeline(DetectPipeline):
     def post_detect(self,detection_result):
         reg_boxes, classes = detection_result
         confs,classes = torch.max(classes, dim = 2) 
-        return [reg_boxes,confs,classes]
+        
+        # TODO - convert detections from image space to state space
+        # Hmm, somehow we need to know which frame each index is, so we probably need to pass that list in
+        detections = self.hg.im_to_state()
+        
+        return [detections,confs,classes]
+    
+    
+    
     
         
 class RetinanetCropFramePipeline(DetectPipeline):

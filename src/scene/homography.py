@@ -278,7 +278,7 @@ class Homography():
         returns - [d,6] array of points in state formulation
         """
         d = points.shape[0]
-        new_pts = torch.zeros([d,6])
+        new_pts = torch.zeros([d,6],device = points.device)
         
         # rear center bottom of vehicle is (x,y)
         
@@ -304,7 +304,7 @@ class Homography():
         
     def i24_state_to_space(self,points):
         d = points.shape[0]
-        new_pts = torch.zeros([d,8,3])
+        new_pts = torch.zeros([d,8,3],device = points.device)
         
         # assign x values
         new_pts[:,[0,1,4,5],0] = (points[:,0] + points[:,5]*points[:,2]).unsqueeze(1).repeat(1,4)
@@ -398,19 +398,19 @@ class Homography():
         d = points.shape[0]
         
         # convert points into size [dm,3]
-        points = points.reshape(-1,2).double()
+        points = points.view(-1,2).double()
         points = torch.cat((points,torch.ones([points.shape[0],1]).double()),1) # add 3rd row
         
         if heights is not None:
             
             if type(name) == list:
                 H = torch.from_numpy(np.stack([self.correspondence[sub_n]["H"].transpose(1,0) for sub_n in name])) # note that must do transpose(1,0) because this is a numpy operation, not a torch operation ...
-                H = H.unsqueeze(1).repeat(1,8,1,1).reshape(-1,3,3)
+                H = H.unsqueeze(1).repeat(1,8,1,1).view(-1,3,3).to(points.device)
                 points = points.unsqueeze(1)
                 new_pts = torch.bmm(points,H)
                 new_pts = new_pts.squeeze(1)
             else:
-                H = torch.from_numpy(self.correspondence[name]["H"]).transpose(0,1)
+                H = torch.from_numpy(self.correspondence[name]["H"]).transpose(0,1).to(points.device)
                 new_pts = torch.matmul(points,H)
             
             # divide each point 0th and 1st column by the 2nd column
@@ -421,7 +421,7 @@ class Homography():
             new_pts = new_pts[:,:2] 
             
             # reshape to [d,m,2]
-            new_pts = new_pts.reshape(d,-1,2)
+            new_pts = new_pts.view(d,-1,2)
             
             # add third column for height
             new_pts = torch.cat((new_pts,torch.zeros([d,new_pts.shape[1],1]).double()),2)
@@ -449,19 +449,19 @@ class Homography():
         d = points.shape[0]
         
         # convert points into size [dm,4]
-        points = points.reshape(-1,3)
+        points = points.view(-1,3)
         points = torch.cat((points.double(),torch.ones([points.shape[0],1]).double()),1) # add 4th row
         
         
         # project into [dm,3]
         if type(name) == list:
                 P = torch.from_numpy(np.stack([self.correspondence[sub_n]["P"] for sub_n in name]))
-                P = P.unsqueeze(1).repeat(1,8,1,1).reshape(-1,3,4)
+                P = P.unsqueeze(1).repeat(1,8,1,1).reshape(-1,3,4).to(points.device)
                 points = points.unsqueeze(1).transpose(1,2)
                 new_pts = torch.bmm(P,points).squeeze(2)
         else:
             points = torch.transpose(points,0,1).double()
-            P = torch.from_numpy(self.correspondence[name]["P"]).double()
+            P = torch.from_numpy(self.correspondence[name]["P"]).double().to(points.device)
             new_pts = torch.matmul(P,points).transpose(0,1)
         
         # divide each point 0th and 1st column by the 2nd column
@@ -472,7 +472,7 @@ class Homography():
         new_pts = new_pts[:,:2] 
         
         # reshape to [d,m,2]
-        new_pts = new_pts.reshape(d,-1,2)
+        new_pts = new_pts.view(d,-1,2)
         return new_pts
     
     
@@ -863,14 +863,14 @@ class HomographyWrapper():
         if heights is None:
             if classes is not None:
                 # get initial state boxes with guessed heights
-                heights = self.hg1.guess_heights(classes)
+                heights = self.hg1.guess_heights(classes).to(points.device)
                 boxes = self._i2st(points,heights = heights,name = name)
             
                 # project guess-height boxes back into image
                 repro_boxes = self.state_to_im(boxes, name = name)
             
                 # prefine guessed height based on the size of the reproj. error relative to input height
-                heights = self.hg1.height_from_template(repro_boxes,heights,points)
+                heights = self.hg1.height_from_template(repro_boxes,heights,points).to(points.device)
             else:
                 raise ValueError("Either classes or heights must be specified for homography im to state conversion")
                 
@@ -882,7 +882,7 @@ class HomographyWrapper():
     def state_to_im(self,points,name = None):
         return self.space_to_im(self.state_to_space(points),name = name)
     
-    def plot_state_boxes(self,im,boxes,name = None, color = (255,255,255),secondary_color = None,labels = None,thickness = 1,jitter_px = 0):
+    def plot_state_boxes(self,im,boxes,name = None, color = (255,255,255),secondary_color = None,labels = None,thickness = 1):
         """
         im - cv2 image
         boxes - [d,s] boxes in state formulation
@@ -900,8 +900,6 @@ class HomographyWrapper():
         boxes1 = boxes[ind,:]
         if len(boxes1) > 0:
             im_boxes1 = self.state_to_im(boxes1,name = name)
-            jitter = (torch.rand([im_boxes1.shape[0],1,1])*2 -1) * jitter_px
-            im_boxes1 += jitter.expand(im_boxes1.shape[0],8,2)
             im = self.hg2.plot_boxes(im,im_boxes1,color = secondary_color,labels = labels1,thickness = thickness)
         
         # plot objects that are best fit by hg1
@@ -915,8 +913,6 @@ class HomographyWrapper():
         if len(boxes2) > 0:
             im_boxes2 = self.state_to_im(boxes2,name = name)
             
-            jitter = (torch.rand([im_boxes2.shape[0],1,1])*2 -1) * jitter_px
-            im_boxes2 += jitter.expand(im_boxes2.shape[0],8,2)
             im = self.hg1.plot_boxes(im,im_boxes2,color = color,labels = labels2,thickness = thickness)
 
         return im

@@ -1,5 +1,5 @@
 import torch
-
+import os
 
 from i24_configparse.parse    import parse_cfg
 from src.track.tracker        import get_Tracker, get_Associator
@@ -11,7 +11,7 @@ from src.detect.devicebank    import DeviceBank
 from src.load                 import MCLoader
 from src.db_write             import DBWriter
 
-
+os.environ["user_config_directory"] = "C:\\Users\\derek\\OneDrive\\Documents\\Derek's stuff\\Not Not School\\Lab\\Code\\i24_track\\config"
 
 
 
@@ -30,9 +30,12 @@ loader = MCLoader()
 # intialize DeviceMap
 dmap = get_DeviceMap(params.device_map)
 
+# initialize Homography object
+hg = HomographyWrapper()
+
 # initialize pipelines
 pipelines = params.pipelines.split(",")
-pipelines = [get_Pipeline(item) for item in pipelines]
+pipelines = [get_Pipeline(item,hg) for item in pipelines]
 
 associators = params.associators.split(",")
 associators = [get_Associator(item) for item in associators]
@@ -42,13 +45,12 @@ tracker = get_Tracker
 
 # add Associate function to each pipeline
 for i in range(len(pipelines)):
+    assoc = get_Associator(associators[i],device_id = pipelines[i].device_id)
     pipelines[i].associate = associators[i]
 
-# initialize Homography object
-hg = HomographyWrapper()
 
 # initialize DetectorBank
-dbank = DeviceBank(params.cuda_devices,pipelines,hg)
+dbank = DeviceBank(params.cuda_devices,pipelines)
 
 
 
@@ -84,11 +86,11 @@ while True:
     camera_idxs = camera_idxs[selected_obj_idxs]
     
     
-    # map and mov
+    # prep input stack by grouping priors by gpu
     cam_idx_names = None # map idxs to names here
-    #device_priors = dmap.route_objects(obj_ids,priors,device_idxs,camera_idxs)
+    prior_stack =  dmap.route_objects(obj_ids,priors,device_idxs,camera_idxs,run_device_ids = params.cuda_devices)
     
-    detections,associations = dbank(prior_stack,frame_stack,pipeline_idx = 0)
+    detections,associations = dbank(prior_stack,frames,pipeline_idx = 0)
     
     terminated_objects = tracker.post_process(detections,associations)
     

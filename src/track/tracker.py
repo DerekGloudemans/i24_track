@@ -18,15 +18,15 @@ def get_Tracker(name):
     
     return tracker
 
-def get_Associator(name):
+def get_Associator(name,device_id = -1):
     """
     getter function that takes a string (class name) input and returns an instance
     of the named class
     """
     if name == "Associator":
-        assoc = Associator()
+        assoc = Associator(device_id = device_id)
     elif name == "HungarianIOUAssiociator":
-        assoc = HungarianIOUAssociator()
+        assoc = HungarianIOUAssociator(device_id = device_id)
     else:
         raise NotImplementedError("No Associator child class named {}".format(name))
     
@@ -35,7 +35,7 @@ def get_Associator(name):
 
 
 class Associator():
-    
+
     def __init__(self):
         self = parse_cfg("DEFAULT",obj = self)
         

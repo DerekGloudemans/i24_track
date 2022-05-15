@@ -93,8 +93,8 @@ def handle_device(in_queue,out_queue,pipelines,device_id):
             break
             #TODO log device handler shutdown
         
-        (ids,priors,frames,pipeline_idx) = inputs
+        (prior_data,frames,pipeline_idx) = inputs
         
-        result = pipelines[pipeline_idx](ids,priors,frames)
+        result = pipelines[pipeline_idx](frames,priors = prior_data)
         out_queue.put(result)
         

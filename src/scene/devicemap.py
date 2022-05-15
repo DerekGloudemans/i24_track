@@ -62,12 +62,25 @@ class DeviceMap():
         
         
         # note that self.cam_names is THE ordering of cameras, and all other camera orderings should be relative to this ["p1c1","p1c2", etc]
-        # self.gpu_cam_ids is THE ordering of cameras per GPU (list of lists) [0,0,0,1,1,1 etc.]
-        # and self.cam_devices[i] contains device index for camera i in self.cam_ids [[p1c1,p1c2],[p1c3,p1c4] etc]
+        # self.cam_devices[i] is THE ordering of cameras per GPU (list of lists) [0,0,0,1,1,1 etc.]
+        
+        # and  self.gpu_cam_names contains device index for camera i in self.cam_ids [[p1c1,p1c2],[p1c3,p1c4] etc]
         self.gpu_cam_names = [[] for i in range(self.n_devices)]
         [self.gpu_cam_names[self.cam_devices[i]].append(self.cam_names[i]) for i in range(len(self.cam_names))]
         
+        # lastly, we create cam_gpu_idx, which is a tensor with one row for each camera
+        # where row i contains (gpu_idx for cam i, cam_frame_idx for cam i)
+        self.cam_gpu_idx = torch.empty(len(self.cam_names),2)
+        for i in range(len(self.cam_names)):
+            self.cam_gpu_idx[i,0] = self.cam_devices[i]
+            for j,name in enumerate(self.gpu_cam_names[self.cam_devices[i]]):
+                if name == self.cam_names[i]:
+                    self.cam_gpu_idx[i,1] = j
+                    
         
+                    
+                
+    
     def _parse_cameras(self,extents_file):
         """
         This function is likely to change in future versions. For now, config file is expected to 
@@ -123,13 +136,44 @@ class DeviceMap():
         
         return 
     
-    def route_objects(self,cam_map,gpu_map,obj_ids,obj_priors):
+    def route_objects(self,obj_ids,priors,device_idxs,camera_idxs,run_device_ids = None):
+        """
+        Batches input objects onto specified devices
+        :param obj_ids - tensor of int object IDs
+        :param priors - tensor of size [n_objs,state_size]
+        :param device_idxs - int tensor of size [n_objs] indexing GPU on which each obj will be queried
+        :param camera_idxs - int tensor of size [n_objs] indexing self.cam_names (global camera ordering)
+        :run_device_ids - list of size [n_gpus] with corresponding CUDA device idx for each index. This
+                           is to avoid list skip indexing trouble e.g. when CUDA_devices = [0,2,3,4] 
+        
+        returns - prior_stack - list of size n_devices, where each list element i is:
+            (obj_ids,priors,gpu_cam_idx,cam_names)
+            obj_ids - subset of input obj_ids on device i
+            priors - subset of input priors on device i
+            gpu_cam_idx - index of which camera frame from among all camera frames on gpu i
+            cam_names - lost of camera names for each object in output obj_ids
         """
         
-        """
-        pass
+        # if no device ids are specified for this run, assume cuda device ids are contiguous
+        if run_device_ids is None:
+            run_device_ids = [i for i in range(max(device_idxs))]
+            
         
-
+        prior_stack = []
+        for gpu_id in run_device_ids:
+            
+            # get all indices into device_idxs where device_idxs[i] == gpu_id
+            selected = torch.where(device_idxs == gpu_id,torch.ones(device_idxs.shape),torch.zeros(device_idxs.shape)).nonzero().squeeze(1)
+            
+            selected_cams = camera_idxs[selected]
+            selected_gpu_cam_idx = self.gpu_cam_names[selected_cams,1]
+            
+            selected_cam_names = [self.cam_names[i] for i in selected_cams]
+            
+            gpu_priors = (obj_ids[selected],priors[selected,:],selected_gpu_cam_idx,selected_cam_names)
+            prior_stack.append(gpu_priors)
+        
+        return prior_stack
     
 class HeuristicDeviceMap(DeviceMap):
     
