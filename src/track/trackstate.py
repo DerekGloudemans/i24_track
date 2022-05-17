@@ -44,8 +44,11 @@ class TrackState():
         # initialize Kalman filter
         self.kf = Torch_KF(self.device,INIT = kf_params)
         
-    def __len__(self):        
-        return self.kf.X.shape[0]
+    def __len__(self):      
+        try:
+            return self.kf.X.shape[0]
+        except AttributeError: # no objects in self.kf.X
+            return 0
      
     def __call__(self,target_time = None,with_direction = False,mode = "tensor"):
         """
@@ -126,9 +129,9 @@ class TrackState():
         self.kf.predict(dt = dt)
     
     def update(self,detections,obj_ids,classes,confs,measurement_idx = 0):
-    
-        # update kf states
-        self.kf.update(detections,obj_ids,measurement_idx = measurement_idx)
+        if len(obj_ids) > 0:
+            # update kf states
+            self.kf.update(detections,obj_ids,measurement_idx = measurement_idx)
         
         # increment all fslds - any obj with an update will have fsld overwritten next
         for id in self.fsld.keys():

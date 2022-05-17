@@ -1,5 +1,7 @@
 import torch
 from i24_configparse.parse import parse_cfg
+from ..util.bbox import im_nms,space_nms
+
 
 import os
 os.environ["user_config_directory"] = "/home/worklab/Documents/i24/i24_track/config"
@@ -9,15 +11,15 @@ os.environ["user_config_directory"] = "/home/worklab/Documents/i24/i24_track/con
 from .retinanet_3D.retinanet.model import resnet50 as Retinanet3D
 
 
-def get_Pipeline(name):
+def get_Pipeline(name,hg):
     """
     getter function that takes a string (class name) input and returns an instance
     of the named class
     """
     if name == "RetinanetFullFramePipeline":
-        pipeline = RetinanetFullFramePipeline()
+        pipeline = RetinanetFullFramePipeline(hg)
     elif name == "RetinanetCropFramePipeline":
-        pipeline = RetinanetCropFramePipeline()
+        pipeline = RetinanetCropFramePipeline(hg)
     else:
         raise NotImplementedError("No DetectPipeline child class named {}".format(name))
     
@@ -59,19 +61,23 @@ class DetectPipeline():
         """
         return detection_result
 
-    def __call__(self,frames,priors = None):
-        [ids,priors,frame_idx,cam_name] = priors
+    def __call__(self,frames,priors):
+        
+        [ids,priors,frame_idx,cam_names] = priors
         
         prepped_frames = self.prep_frames(frames,priors = priors)
         detection_result = self.detect(prepped_frames)
-        detections,classes,confs  = self.post_detect(detection_result,priors = priors)
+        confs,classes,detections,detection_cam_names  = self.post_detect(detection_result,priors = priors)
         
         # Associate
-        output = self.associate(ids,priors,detections,self.hg)
-        
-        return output
-
-
+        matchings = self.associate(ids,priors,detections,self.hg)
+        return detections,confs,classes,detection_cam_names,matchings
+    
+    def set_cam_names(self,cam_names):
+        self.this_device_cam_names = cam_names
+    
+    
+    
     
     
 class RetinanetFullFramePipeline(DetectPipeline):
@@ -89,31 +95,71 @@ class RetinanetFullFramePipeline(DetectPipeline):
         self.detector = Retinanet3D(self.n_classes)
     
         # quantize model         
-        if self.quantize:
+        if False and self.quantize:
             self.detector = self.detector.half()
         
         # load detector weights
         self.detector.load_state_dict(torch.load(self.weights_file))
-
-        
-        # configure detector
-        self.device = torch.device("cuda:{}".format(device_id) if device_id != -1 else "cpu")
-        torch.cuda.set_device(self.device_id)
-        self.detector = self.detector.to(self.device)
-        self.detector.eval()
     
         self.hg = hg # store homography
 
+        self.cam_names = None
         
-    def post_detect(self,detection_result):
-        reg_boxes, classes = detection_result
-        confs,classes = torch.max(classes, dim = 2) 
+    def set_device(self,device_id = -1):
+        # configure detector
+        self.device = torch.device("cuda:{}".format(device_id) if device_id != -1 else "cpu")
+        if device_id != -1:
+            torch.cuda.set_device(device_id)
+        self.detector = self.detector.to(self.device)
+        self.detector.eval()
         
-        # TODO - convert detections from image space to state space
-        # Hmm, somehow we need to know which frame each index is, so we probably need to pass that list in
-        detections = self.hg.im_to_state()
+        torch.cuda.set_device(self.device)
         
-        return [detections,confs,classes]
+    def detect(self,frames):
+        with torch.no_grad():
+            result = self.detector(frames,MULTI_FRAME = True)
+        return result
+    
+    def post_detect(self,detection_result,priors = None):
+        confs,classes,detections,detection_idxs = detection_result # detection_idx = which frame from idx each detection is from
+        #confs,classes = torch.max(classes, dim = 2) 
+        detection_cam_names = [] # dummy value in case no objects returned
+        
+        # low confidence filter
+        if len(confs) > 0:
+            mask           = torch.where(confs > self.min_conf,torch.ones(confs.shape,device = confs.device),torch.zeros(confs.shape,device = confs.device)).nonzero()
+            confs          = confs[mask]
+            classes        = classes[mask]
+            detections     = detections[mask]
+            detection_idxs = detection_idxs[mask]
+        
+        # im space NMS 
+        if len(confs) > 0 and self.im_nms_iou < 1:
+            mask           = im_nms(detections,confs,threshold = self.im_nms_iou,groups = detection_idxs)
+            confs          = confs[mask]
+            classes        = classes[mask]
+            detections     = detections[mask]
+            detection_idxs = detection_idxs[mask]
+        
+        if len(confs) > 0:
+            detection_cam_names = [self.cam_names[i] for i in detection_idxs]
+            
+            # Use the guess and refine method to get box heights
+            detections = self.hg.im_to_state(detections,name = detection_cam_names,classes = classes)
+            
+            # state space NMS
+            mask           = space_nms(detections,confs,threshold = self.im_nms_iou)
+            confs          = confs[mask]
+            classes        = classes[mask]
+            detections     = detections[mask]
+            detection_cam_names = detection_cam_names[mask]  
+        
+        # finally, move back to cpu
+        detections = detections.cpu()
+        confs = confs.cpu()
+        classes = classes.cpu()
+        
+        return [detections,confs,classes,detection_cam_names]
     
     
     

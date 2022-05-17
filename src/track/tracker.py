@@ -24,9 +24,9 @@ def get_Associator(name,device_id = -1):
     of the named class
     """
     if name == "Associator":
-        assoc = Associator(device_id = device_id)
-    elif name == "HungarianIOUAssiociator":
-        assoc = HungarianIOUAssociator(device_id = device_id)
+        assoc = Associator()
+    elif name == "HungarianIOUAssociator":
+        assoc = HungarianIOUAssociator()
     else:
         raise NotImplementedError("No Associator child class named {}".format(name))
     
@@ -39,7 +39,7 @@ class Associator():
     def __init__(self):
         self = parse_cfg("DEFAULT",obj = self)
         
-        self.device = torch.cuda.device("cuda:{}".format(self.device_id) if self.device_id != -1 else "cpu")
+        #self.device = torch.cuda.device("cuda:{}".format(self.device_id) if self.device_id != -1 else "cpu")
         
     def __call__(self,obj_ids,priors,detections,hg = None):
         """
@@ -58,7 +58,7 @@ class HungarianIOUAssociator(Associator):
     def __init__(self):
         self = parse_cfg("DEFAULT",obj = self)
         
-        self.device = torch.cuda.device("cuda:{}".format(self.device_id) if self.device_id != -1 else "cpu")
+        #self.device = torch.cuda.device("cuda:{}".format(self.device_id) if self.device_id != -1 else "cpu")
         # self.min_match_iou
     
     def __call__(self,obj_ids,priors,detections,hg):
@@ -88,7 +88,7 @@ class HungarianIOUAssociator(Associator):
 
        # first and second are in state form - convert to space form
        first = hg.state_to_space(first.clone())
-       boxes_new = torch.zeros([first.shape[0],4])
+       boxes_new = torch.zeros([first.shape[0],4],device = first.device)
        boxes_new[:,0] = torch.min(first[:,0:4,0],dim = 1)[0]
        boxes_new[:,2] = torch.max(first[:,0:4,0],dim = 1)[0]
        boxes_new[:,1] = torch.min(first[:,0:4,1],dim = 1)[0]
@@ -96,7 +96,7 @@ class HungarianIOUAssociator(Associator):
        first = boxes_new
        
        second = hg.state_to_space(second.clone())
-       boxes_new = torch.zeros([second.shape[0],4])
+       boxes_new = torch.zeros([second.shape[0],4],device = second.device)
        boxes_new[:,0] = torch.min(second[:,0:4,0],dim = 1)[0]
        boxes_new[:,2] = torch.max(second[:,0:4,0],dim = 1)[0]
        boxes_new[:,1] = torch.min(second[:,0:4,1],dim = 1)[0]
@@ -147,7 +147,7 @@ class HungarianIOUAssociator(Associator):
         maxx = torch.min(a[:,:,2], b[:,:,2])
         miny = torch.max(a[:,:,1], b[:,:,1])
         maxy = torch.min(a[:,:,3], b[:,:,3])
-        zeros = torch.zeros(minx.shape,dtype=float,device = self.device)
+        zeros = torch.zeros(minx.shape,dtype=float,device = a.device)
         
         intersection = torch.max(zeros, maxx-minx) * torch.max(zeros,maxy-miny)
         union = area_a + area_b - intersection
@@ -190,7 +190,7 @@ class BaseTracker():
         :return selected_idxs - tensor of idxs on which to perform measurement update (naively, all of them)
         """
         
-        dts = tstate.get_dts(obj_times)
+        dts = tstate.get_dt(obj_times)
         tstate.predict(dt = dts)   
         
         obj_ids,priors = tstate()
@@ -220,43 +220,49 @@ class BaseTracker():
         """
         
         # get IDs and times for update
-        update_idxs = torch.nonzero(assigned_ids + 1) 
-        update_ids = assigned_ids[update_idxs]
-        update_times = detection_times[update_idxs]
-                
-
-        # roll existing objects forward to the detection times
-        dts = tstate.get_dts(update_times)
-        tstate.predict(dt = dts,idxs = update_ids)
+        if len(assigned_ids) > 0:
+            update_idxs = torch.nonzero(assigned_ids + 1) 
+            update_ids = assigned_ids[update_idxs]
+            update_times = detection_times[update_idxs]
+                    
     
-        # update assigned detections
-        update_detections = detections[update_idxs,:]
-        update_classes = classes[update_idxs]
-        update_confs = confs[update_idxs]
-        tstate.update(update_detections,update_ids,update_classes,update_confs, measurement_idx = meas_idx)
+            # roll existing objects forward to the detection times
+            dts = tstate.get_dt(update_times)
+            tstate.predict(dt = dts,idxs = update_ids)
         
-        
-        # add unassigned detections
-        new_idxs = [i for i in range(len(update_ids))]
-        for i in update_idxs:
-            new_idxs.remove(i)
+            # update assigned detections
+            update_detections = detections[update_idxs,:]
+            update_classes = classes[update_idxs]
+            update_confs = confs[update_idxs]
+            tstate.update(update_detections,update_ids,update_classes,update_confs, measurement_idx = meas_idx)
+            
+            # add unassigned detections
+            new_idxs = [i for i in range(len(update_ids))]
+            for i in update_idxs:
+                new_idxs.remove(i)
+              
+            
+            # add new detections as new objects
+            new_idxs = torch.tensor(new_idxs)
+            new_detections = detections[new_idxs,:]
+            new_classes = classes[new_idxs]
+            new_confs = confs[new_idxs]
+            new_times = detection_times[new_idxs]
+            
+            # create direction tensor based on location
+            directions = torch.where(new_detections[:,1] > 60, torch.zeros(new_idxs.shape)-1,torch.ones(new_idxs.shape))
+            
+            tstate.add(new_detections,directions,new_times,new_classes,new_confs)
           
-        # add new detections as new objects
-        new_idxs = torch.tensor(new_idxs)
-        new_detections = detections[new_idxs,:]
-        new_classes = classes[new_idxs]
-        new_confs = confs[new_idxs]
-        new_times = detection_times[new_idxs]
-        
-        # create direction tensor based on location
-        directions = torch.where(new_detections[:,1] > 60, torch.zeros(new_idxs.shape)-1,torch.ones(new_idxs.shape))
-        
-        tstate.add(new_detections,directions,new_times,new_classes,new_confs)
+        # if no detections, increment fsld in all tracked objects
+        else:
+            tstate.update(None,[],None,None)
         
         # remove objects
         stale_objects = self.remove(tstate)
         
         return stale_objects
+
 
     def remove(self,tstate):
         """

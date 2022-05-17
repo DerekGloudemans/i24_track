@@ -36,7 +36,7 @@ class DeviceMap():
             can then be passed to the DetectorBank to split across devices and perform any cropping etc.
     """
     
-    def __init__(self,map_fn = None):
+    def __init__(self):
         
         # load config
         self = parse_cfg("DEFAULT",obj = self)
@@ -54,18 +54,14 @@ class DeviceMap():
         
         # load self.cam_devices
         self._parse_device_mapping(self.camera_mapping_file)
-        
-        # load mapping function
-        if map_fn is None:
-            map_fn = self.default_map_cameras
-        self.map_cameras = map_fn
+        self.cam_devices = [self.cam_devices[cam_name] for cam_name in self.cam_names]
         
         
         # note that self.cam_names is THE ordering of cameras, and all other camera orderings should be relative to this ["p1c1","p1c2", etc]
         # self.cam_devices[i] is THE ordering of cameras per GPU (list of lists) [0,0,0,1,1,1 etc.]
         
         # and  self.gpu_cam_names contains device index for camera i in self.cam_ids [[p1c1,p1c2],[p1c3,p1c4] etc]
-        self.gpu_cam_names = [[] for i in range(self.n_devices)]
+        self.gpu_cam_names = [[] for i in range(torch.cuda.device_count())]
         [self.gpu_cam_names[self.cam_devices[i]].append(self.cam_names[i]) for i in range(len(self.cam_names))]
         
         # lastly, we create cam_gpu_idx, which is a tensor with one row for each camera
@@ -94,7 +90,7 @@ class DeviceMap():
         extents = dict(cp["DEFAULT"])
        
         for key in extents.keys():
-            parsed_val = [int(item) for item in extents[key].split(",")]
+            parsed_val = [int(item) for item in extents[key][1:-1].split(",")]
             extents[key] = parsed_val
     
         self.cam_extents = extents
@@ -124,17 +120,19 @@ class DeviceMap():
         :param cameras - list of camera names of size n
         :return gpus - tensor of GPU IDs (int) for each of n input cameras
         """
+        if len(cam_map) == 0:
+            return []
         
         gpu_map = torch.tensor([self.cam_devices[camera] for camera in cam_map])
         return gpu_map
     
     def __call__(self,tstate,ts):
-        cam_map = self.map_cameras(tstate,ts)
+        cam_map,obj_times = self.map_cameras(tstate,ts)
         gpu_map = self.map_devices(cam_map)
         
         # get times
         
-        return 
+        return cam_map,gpu_map,obj_times
     
     def route_objects(self,obj_ids,priors,device_idxs,camera_idxs,run_device_ids = None):
         """
@@ -159,6 +157,10 @@ class DeviceMap():
             run_device_ids = [i for i in range(max(device_idxs))]
             
         
+        # no objects
+        if len(obj_ids) == 0:
+            return [[[],[],[],[]] for i in range(len(run_device_ids))]
+        
         prior_stack = []
         for gpu_id in run_device_ids:
             
@@ -180,6 +182,7 @@ class HeuristicDeviceMap(DeviceMap):
     def __init__(self):
         super(HeuristicDeviceMap, self).__init__()
         
+        # TODO move this to the config
         # add camera priority
         priority_dict = {"c1":1,
                     "c2":100,
@@ -212,10 +215,11 @@ class HeuristicDeviceMap(DeviceMap):
         ids,states = tstate() # [n_objects,state_size]
         
         # store useful dimensions
-        n_c = len(self.cam_ids)
-        n_o = len(self.ids)
+        n_c = len(self.cam_devices)
+        n_o = len(ids)
         
-        
+        if n_o == 0:
+            return [],[]
         
         ## create is_visible, [n_objects,n_cameras]
 
