@@ -100,6 +100,8 @@ class MCLoader():
             out.append(torch.stack(lis))
         ts = torch.tensor([self.dummy_time for i in range(len(self.cam_devices))])    
         
+        self.dummy_time += 0.0333
+        
         return out,ts
 
 

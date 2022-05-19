@@ -123,7 +123,7 @@ class TrackState():
         return removals
     
     def get_dt(self,target_times,idxs = None):
-        return self.kf.get_dt(target_times,idxs = None)
+        return self.kf.get_dt(target_times,idxs = idxs)
     
     def predict(self,dt = None):
         self.kf.predict(dt = dt)
