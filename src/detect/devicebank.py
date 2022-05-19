@@ -9,7 +9,7 @@ class DeviceBank():
     as well as to initialize each DeviceHandler with the correct parameters
     """
     
-    def __init__(self,device_ids,pipelines,device_cam_names):
+    def __init__(self,device_ids,pipelines,device_cam_names,ctx):
         """
         gpu_cam_names = list of lists, with one list per gpu, and camera names assigned to that gpu in the list
         """
@@ -22,7 +22,7 @@ class DeviceBank():
         
         #self.manager = mp.Manager()
         #mp.set_start_method('spawn')
-        ctx = mp.get_context('spawn')
+        #ctx = mp.get_context('spawn')
         
         # create handler objects
         for dev_idx in range(len(device_ids)):

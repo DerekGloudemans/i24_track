@@ -67,14 +67,14 @@ class DetectPipeline():
         
         prepped_frames = self.prep_frames(frames,priors = priors)
         detection_result = self.detect(prepped_frames)
-        confs,classes,detections,detection_cam_names  = self.post_detect(detection_result,priors = priors)
+        detections,confs,classes,detection_cam_names  = self.post_detect(detection_result,priors = priors)
         
         # Associate
         matchings = self.associate(ids,priors,detections,self.hg)
         return detections,confs,classes,detection_cam_names,matchings
     
     def set_cam_names(self,cam_names):
-        self.this_device_cam_names = cam_names
+        self.cam_names = cam_names
     
     
     
@@ -125,12 +125,18 @@ class RetinanetFullFramePipeline(DetectPipeline):
         #confs,classes = torch.max(classes, dim = 2) 
         detection_cam_names = [] # dummy value in case no objects returned
         
+        
+        # reshape detections to form [d,8,2] 
+        detections = detections.reshape(-1,10,2)
+        detections = detections[:,:8,:] # drop 2D boxes
+        
+        
         # low confidence filter
         if len(confs) > 0:
-            mask           = torch.where(confs > self.min_conf,torch.ones(confs.shape,device = confs.device),torch.zeros(confs.shape,device = confs.device)).nonzero()
+            mask           = torch.where(confs > self.min_conf,torch.ones(confs.shape,device = confs.device),torch.zeros(confs.shape,device = confs.device)).nonzero().squeeze(1)
             confs          = confs[mask]
             classes        = classes[mask]
-            detections     = detections[mask]
+            detections     = detections[mask,:,:]
             detection_idxs = detection_idxs[mask]
         
         # im space NMS 
@@ -138,7 +144,7 @@ class RetinanetFullFramePipeline(DetectPipeline):
             mask           = im_nms(detections,confs,threshold = self.im_nms_iou,groups = detection_idxs)
             confs          = confs[mask]
             classes        = classes[mask]
-            detections     = detections[mask]
+            detections     = detections[mask,:,:]
             detection_idxs = detection_idxs[mask]
         
         if len(confs) > 0:
@@ -146,13 +152,17 @@ class RetinanetFullFramePipeline(DetectPipeline):
             
             # Use the guess and refine method to get box heights
             detections = self.hg.im_to_state(detections,name = detection_cam_names,classes = classes)
-            
+            detections = self.hg.state_to_space(detections)
             # state space NMS
             mask           = space_nms(detections,confs,threshold = self.im_nms_iou)
             confs          = confs[mask]
             classes        = classes[mask]
-            detections     = detections[mask]
-            detection_cam_names = detection_cam_names[mask]  
+            detections     = detections[mask,:,:]
+            detection_idxs = detection_idxs[mask]
+            detection_cam_names = [self.cam_names[i] for i in detection_idxs]
+            
+            if len(confs) > 0:
+                detections = self.hg.space_to_state(detections)
         
         # finally, move back to cpu
         detections = detections.cpu()

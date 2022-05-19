@@ -19,11 +19,12 @@ if __name__ == "__main__":
     from src.scene.devicemap      import get_DeviceMap
     from src.scene.homography     import HomographyWrapper
     from src.detect.devicebank    import DeviceBank
-    from src.load                 import DummyLoader
+    from src.load                 import DummyNoiseLoader,MCLoader
     #from src.db_write             import DBWriter
     
     
-    
+    ctx = mp.get_context('spawn')
+
     
     os.environ["user_config_directory"] = "/home/worklab/Documents/i24/i24_track/config/lambda_quad"
     
@@ -43,7 +44,9 @@ if __name__ == "__main__":
     dmap = get_DeviceMap(params.device_map)
     
     # initialize multi-camera loader
-    loader = DummyLoader(dmap.camera_mapping_file)
+    #loader = DummyNoiseLoader(dmap.camera_mapping_file)
+    in_dir = "/home/worklab/Data/dataset_beta/sequence_1"
+    loader = MCLoader(in_dir,dmap.camera_mapping_file,ctx)
     
     # initialize Homography object
     hg = HomographyWrapper()
@@ -64,7 +67,7 @@ if __name__ == "__main__":
         pipelines[i].associate = associators[i]
     
     # initialize DetectorBank
-    dbank = DeviceBank(params.cuda_devices,pipelines,dmap.gpu_cam_names)
+    dbank = DeviceBank(params.cuda_devices,pipelines,dmap.gpu_cam_names,ctx)
     
     
     
@@ -81,7 +84,7 @@ if __name__ == "__main__":
     start_time = time.time()
     while True:
         fps = frames_processed/(time.time() - start_time)
-        print("\rTracking frame {} ({} updates per second average)".format(frames_processed,fps, end = '\r', flush = True))
+        print("\rTracking frame {} ({:.2f} bps average)".format(frames_processed,fps), end = '\r', flush = True)
     
         
         # compute target time
@@ -112,17 +115,17 @@ if __name__ == "__main__":
         prior_stack =  dmap.route_objects(obj_ids,priors,device_idxs,camera_idxs,run_device_ids = params.cuda_devices)
         
         # test on a single on-process pipeline
-        # pipelines[0].set_device(0)
-        # pipelines[0].set_cam_names(dmap.gpu_cam_names[0])
-        # test = pipelines[0](frames[0],prior_stack[0])
+        pipelines[0].set_device(0)
+        pipelines[0].set_cam_names(dmap.gpu_cam_names[0])
+        test = pipelines[0](frames[0],prior_stack[0])
         
         # TODO select correct pipeline based on pipeline pattern logic parameter
         detections,confs,classes,detection_cam_names,associations = dbank(prior_stack,frames,pipeline_idx = 0)
         
         # THIS MAY BE SLOW SINCE ITS DOUBLE INDEXING
-        detection_times = [timestamps[dmap.cam_names[cam_name]] for cam_name in detection_cam_names]
+        detection_times = [timestamps[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names]
     
-        terminated_objects = tracker.postprocess(detections,detection_times,confs,classes,associations,tstate)
+        terminated_objects = tracker.postprocess(detections,detection_times,classes,confs,associations,tstate)
         
         frames_processed += 1
         

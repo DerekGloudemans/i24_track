@@ -52,6 +52,11 @@ class DeviceMap():
         self.cam_extents = torch.tensor(extents)
 
         
+        # invert  cam_names into dict
+        self.cam_idxs = {}
+        for i in range(len(self.cam_names)):
+            self.cam_idxs[self.cam_names[i]] = i
+        
         # load self.cam_devices
         self._parse_device_mapping(self.camera_mapping_file)
         self.cam_devices = [self.cam_devices[cam_name] for cam_name in self.cam_names]

@@ -221,14 +221,15 @@ class BaseTracker():
         
         # get IDs and times for update
         if len(assigned_ids) > 0:
-            update_idxs = torch.nonzero(assigned_ids + 1) 
+            update_idxs = torch.nonzero(assigned_ids + 1).squeeze(1) 
             update_ids = assigned_ids[update_idxs]
-            update_times = detection_times[update_idxs]
+            update_times = torch.tensor(detection_times)[update_idxs]
                     
     
+            # TODO this is going to give an issue when some but not all objects need to be rolled forward
             # roll existing objects forward to the detection times
-            dts = tstate.get_dt(update_times)
-            tstate.predict(dt = dts,idxs = update_ids)
+            dts = tstate.get_dt(update_times,idxs = update_idxs)
+            tstate.predict(dt = dts)
         
             # update assigned detections
             update_detections = detections[update_idxs,:]

@@ -9,7 +9,7 @@ import sys, os
 import csv
 import _pickle as pickle
 
-def get_homographies(save_file = "i24_all_homography.cpkl", directory = "/home/worklab/Documents/derek/i24-dataset-gen/DATA/tform2", direction = "EB",fit_Z = True):
+def get_homographies(save_file = "i24_all_homography.cpkl", directory = "/home/worklab/Documents/derek/i24-dataset-gen/DATA/tform", direction = "EB",fit_Z = True):
     """
     Returns a Homography object with pre-loaded correspondences
     save - (None or str) path to save_file - if file exists, it will be opened and returned
@@ -27,7 +27,7 @@ def get_homographies(save_file = "i24_all_homography.cpkl", directory = "/home/w
         
         
         hg = Homography()
-        for camera_name in ["p1c1","p1c2","p1c3","p1c4","p1c5","p1c6","p2c1","p2c3","p2c5","p2c6","p3c1","p3c2","p3c3","p3c4","p3c5","p3c6"]:
+        for camera_name in ["p1c1","p1c2","p1c3","p1c4","p1c5","p1c6","p2c1","p2c2","p2c3","p2c4","p2c5","p2c6","p3c1","p3c2","p3c3","p3c4","p3c5","p3c6"]:
             
             print("Adding camera {} to homography".format(camera_name))
             
@@ -399,7 +399,7 @@ class Homography():
         
         # convert points into size [dm,3]
         points = points.view(-1,2).double()
-        points = torch.cat((points,torch.ones([points.shape[0],1]).double()),1) # add 3rd row
+        points = torch.cat((points,torch.ones([points.shape[0],1],device=points.device).double()),1) # add 3rd row
         
         if heights is not None:
             
@@ -424,7 +424,7 @@ class Homography():
             new_pts = new_pts.view(d,-1,2)
             
             # add third column for height
-            new_pts = torch.cat((new_pts,torch.zeros([d,new_pts.shape[1],1]).double()),2)
+            new_pts = torch.cat((new_pts,torch.zeros([d,new_pts.shape[1],1],device = points.device).double()),2)
             
             new_pts[:,[4,5,6,7],2] = heights.unsqueeze(1).repeat(1,4).double()
             
@@ -450,7 +450,7 @@ class Homography():
         
         # convert points into size [dm,4]
         points = points.view(-1,3)
-        points = torch.cat((points.double(),torch.ones([points.shape[0],1]).double()),1) # add 4th row
+        points = torch.cat((points.double(),torch.ones([points.shape[0],1],device = points.device).double()),1) # add 4th row
         
         
         # project into [dm,3]
@@ -823,8 +823,8 @@ class HomographyWrapper():
         self.hg2 = hg2
         
         if hg1 is None and hg2 is None:
-            self.hg1 = get_homographies(save_file = "EB_homography3.cpkl",direction = "EB")
-            self.hg2 = get_homographies(save_file = "WB_homography3.cpkl",direction = "WB")
+            self.hg1 = get_homographies(save_file = "EB_homography.cpkl",direction = "EB")
+            self.hg2 = get_homographies(save_file = "WB_homography.cpkl",direction = "WB")
         
     ## Pass-through functions 
     def guess_heights(self,classes):
