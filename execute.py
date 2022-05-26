@@ -115,9 +115,9 @@ if __name__ == "__main__":
         prior_stack =  dmap.route_objects(obj_ids,priors,device_idxs,camera_idxs,run_device_ids = params.cuda_devices)
         
         # test on a single on-process pipeline
-        # pipelines[0].set_device(0)
-        # pipelines[0].set_cam_names(dmap.gpu_cam_names[0])
-        # test = pipelines[0](frames[0],prior_stack[0])
+        pipelines[0].set_device(0)
+        pipelines[0].set_cam_names(dmap.gpu_cam_names[0])
+        test = pipelines[0](frames[0],prior_stack[0])
         
         # TODO select correct pipeline based on pipeline pattern logic parameter
         detections,confs,classes,detection_cam_names,associations = dbank(prior_stack,frames,pipeline_idx = 0)
