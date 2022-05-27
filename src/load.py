@@ -106,7 +106,7 @@ class MCLoader():
 
 
 class CV2BackendFrameGetter():    
-    def __init__(self,track_directory,device,ctx,buffer_size = 5,resize = (1920,1080)):
+    def __init__(self,track_directory,device,ctx,buffer_size = 3,resize = (1920,1080)):
         
         """
         """

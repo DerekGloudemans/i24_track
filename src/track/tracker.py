@@ -3,7 +3,7 @@ import torch
 from scipy.optimize import linear_sum_assignment
 
 
-from i24_configparse.parse import parse_cfg
+from i24_configparse import parse_cfg
 
 
 def get_Tracker(name):
@@ -37,7 +37,7 @@ def get_Associator(name,device_id = -1):
 class Associator():
 
     def __init__(self):
-        self = parse_cfg("DEFAULT",obj = self)
+        self = parse_cfg("TRACK_CONFIG_SECTION",obj = self)
         
         #self.device = torch.cuda.device("cuda:{}".format(self.device_id) if self.device_id != -1 else "cpu")
         
@@ -78,7 +78,7 @@ class HungarianIOUAssociator(Associator):
        second = detections
        
        if len(second) == 0:
-            return []
+            return torch.empty(0)
        
        if len(first) == 0:   
            return torch.zeros(len(second))-1
@@ -130,8 +130,12 @@ class HungarianIOUAssociator(Associator):
        for i in range(len(matchings)):
            if matchings[i] != -1 and  dist[matchings[i],i] > (1-self.min_match_iou):
                matchings[i] = -1    
-
-       return matchings
+    
+        # matchings currently contains object indexes - swap to obj_ids
+       for i in range(len(matchings)):
+           if matchings[i] != -1:
+               matchings[i] = obj_ids[matchings[i]]
+       return torch.from_numpy(matchings)
     
             
    
@@ -172,7 +176,7 @@ class BaseTracker():
     def __init__(self):
         
         # parse config file
-        pass        
+        self = parse_cfg("TRACK_CONFIG_SECTION",obj = self)    
         
 
     def preprocess(self,tstate,obj_times):
@@ -203,7 +207,7 @@ class BaseTracker():
         return torch.tensor([i for i in range(len(tstate))])
         
 
-    def postprocess(self,detections,detection_times,classes,confs,assigned_ids,tstate,meas_idx = 0):
+    def postprocess(self,detections,detection_times,classes,confs,assigned_ids,tstate,meas_idx = 1):
         """
         Updates KF representation of objects where assigned_id is not -1 (unassigned)
         Adds other objects as new detections
@@ -222,23 +226,30 @@ class BaseTracker():
         # get IDs and times for update
         if len(assigned_ids) > 0:
             update_idxs = torch.nonzero(assigned_ids + 1).squeeze(1) 
-            update_ids = assigned_ids[update_idxs].tolist()
-            update_times = detection_times[update_idxs]
-                    
-    
-            # TODO this is going to give an issue when some but not all objects need to be rolled forward
-            # roll existing objects forward to the detection times
-            dts = tstate.get_dt(update_times,idxs = update_ids)
-            tstate.predict(dt = dts)
-        
-            # update assigned detections
-            update_detections = detections[update_idxs,:]
-            update_classes = classes[update_idxs]
-            update_confs = confs[update_idxs]
-            tstate.update(update_detections,update_ids,update_classes,update_confs, measurement_idx = meas_idx)
             
-            # add unassigned detections
-            new_idxs = [i for i in range(len(update_ids))]
+            if len(update_idxs) > 0:
+                update_ids = assigned_ids[update_idxs].tolist()
+                update_times = detection_times[update_idxs]
+                
+                tstate_ids = tstate()[0]
+                for id in update_ids:
+                    assert (id in tstate_ids), "{}".format(id)
+                    
+                
+
+                # TODO this is going to give an issue when some but not all objects need to be rolled forward
+                # roll existing objects forward to the detection times
+                dts = tstate.get_dt(update_times,idxs = update_ids)
+                tstate.predict(dt = dts)
+            
+                # update assigned detections
+                update_detections = detections[update_idxs,:]
+                update_classes = classes[update_idxs]
+                update_confs = confs[update_idxs]
+                tstate.update(update_detections[:,:5],update_ids,update_classes,update_confs, measurement_idx = meas_idx)
+            
+            # collect unassigned detections
+            new_idxs = [i for i in range(len(assigned_ids))]
             for i in update_idxs:
                 new_idxs.remove(i)
               
@@ -272,8 +283,9 @@ class BaseTracker():
         # remove stale objects
         removals = []
         for id in tstate()[0]:
+            id = id.item()
             if tstate.fsld[id] > self.fsld_max:
-                removals.append[id]
+                removals.append(id)
                 
         stale_objects = tstate.remove(removals)
         return stale_objects

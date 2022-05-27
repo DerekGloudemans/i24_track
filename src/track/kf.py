@@ -127,7 +127,6 @@ class Torch_KF(object):
                 objects are returned dt if use_default, otherwise returned 0
         
         """
-        
         if self.X is None or len(self.X) == 0:
             return None
         
@@ -135,24 +134,24 @@ class Torch_KF(object):
             dt = target_time - self.T
             return dt
         
-        elif type(target_time) == list: # 2 and 4.
+        if type(target_time) == list: # 2 and 4.
             target_time = torch.tensor(target_time,dtype = torch.double) 
             
-            if idxs is None:
-                dt = target_time - self.T
-                return dt
-            else:
-                dt = torch.zeros(len(self.X))
-                dt = dt + self.dt_default if use_default else dt
-                
-                for i in range(len(idxs)):
-                    dt[idxs[i]] = target_time[i] - self.T[idxs[i]]
-                
-                return dt
-                    
-        else: # 3. time is tensor
+        if idxs is None:
             dt = target_time - self.T
             return dt
+        else:
+            print(len(idxs),len(target_time),self.T.shape[0])
+
+            dt = torch.zeros(len(self.X))
+            dt = dt + self.dt_default if use_default else dt
+            
+            for i in range(len(idxs)):
+                internal_idx = self.obj_idxs[idxs[i]]  # we need to switch from obj_id to internal idx
+                dt[internal_idx] = target_time[i] - self.T[internal_idx]
+            
+            return dt
+                    
         
 
         

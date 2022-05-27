@@ -1,5 +1,5 @@
 from .kf import Torch_KF 
-from i24_configparse.parse import parse_cfg
+from i24_configparse import parse_cfg
 import _pickle as pickle
 import torch
 import numpy as np
@@ -33,7 +33,7 @@ class TrackState():
 
         
         # load config params (self.device_id, self.kf_param_path,self.n_classes)
-        self = parse_cfg("DEFAULT",obj = self)
+        self = parse_cfg("TRACK_CONFIG_SECTION",obj = self)
         
         self.device = torch.device("cpu") if self.device_id == -1 else torch.device("cuda:{}".format(self.device_id))
         
@@ -123,7 +123,7 @@ class TrackState():
         return removals
     
     def get_dt(self,target_times,idxs = None):
-        return self.kf.get_dt(target_times,idxs = None)
+        return self.kf.get_dt(target_times,idxs = idxs)
     
     def predict(self,dt = None):
         self.kf.predict(dt = dt)

@@ -1,5 +1,5 @@
 import torch
-from i24_configparse.parse import parse_cfg
+from i24_configparse import parse_cfg
 from ..util.bbox import im_nms,space_nms
 
 
@@ -71,6 +71,7 @@ class DetectPipeline():
         
         # Associate
         matchings = self.associate(ids,priors,detections,self.hg)
+        del frames
         return detections,confs,classes,detection_cam_names,matchings
     
     def set_cam_names(self,cam_names):
@@ -88,7 +89,7 @@ class RetinanetFullFramePipeline(DetectPipeline):
     def __init__(self,hg,device_id=-1):
         
         # load configuration file parameters
-        self = parse_cfg("DEFAULT",obj = self)
+        self = parse_cfg("TRACK_CONFIG_SECTION",obj = self)
 
         
         # initialize detector

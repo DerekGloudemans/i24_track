@@ -12,7 +12,7 @@ if __name__ == "__main__":
     import torch
     import os
     
-    from i24_configparse.parse    import parse_cfg
+    from i24_configparse          import parse_cfg
     from src.track.tracker        import get_Tracker, get_Associator
     from src.track.trackstate     import TrackState
     from src.detect.pipeline      import get_Pipeline
@@ -26,11 +26,12 @@ if __name__ == "__main__":
     ctx = mp.get_context('spawn')
 
     
-    os.environ["user_config_directory"] = "/home/worklab/Documents/i24/i24_track/config/lambda_quad"
+    os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean"
+    os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
     
     
     # load parameters
-    params = parse_cfg("DEFAULT",cfg_name="execute.config")
+    params = parse_cfg("TRACK_CONFIG_SECTION",cfg_name="execute.config")
     
     # verify config notion of GPUs matches torch.cuda notion of available devices
     # get available devices
@@ -45,7 +46,7 @@ if __name__ == "__main__":
     
     # initialize multi-camera loader
     #loader = DummyNoiseLoader(dmap.camera_mapping_file)
-    in_dir = "/home/worklab/Data/dataset_beta/sequence_1"
+    in_dir = "/home/derek/Data/dataset_beta/sequence_1"
     loader = MCLoader(in_dir,dmap.camera_mapping_file,ctx)
     
     # initialize Homography object
@@ -96,18 +97,17 @@ if __name__ == "__main__":
         # get frames and timestamps
         frames,timestamps = loader.get_frames(target_time)
     
-        
         camera_idxs,device_idxs,obj_times = dmap(tstate,timestamps)
         obj_ids,priors,selected_obj_idxs = tracker.preprocess(tstate,obj_times)
         
         
          # slice only objects we care to pass to DeviceBank on this set of frames
         # DEREK NOTE may run into trouble here since dmap and preprocess implicitly relies on the list ordering of tstate
-        if len(obj_ids) > 0:
-            obj_ids     =     obj_ids[selected_obj_idxs]
-            priors      =      priors[selected_obj_idxs,:]
-            device_idxs = device_idxs[selected_obj_idxs]
-            camera_idxs = camera_idxs[selected_obj_idxs]
+        # if len(obj_ids) > 0:
+        #     obj_ids     =     obj_ids[selected_obj_idxs]
+        #     priors      =      priors[selected_obj_idxs,:]
+        #     device_idxs = device_idxs[selected_obj_idxs]
+        #     camera_idxs = camera_idxs[selected_obj_idxs]
         
         
         # prep input stack by grouping priors by gpu
@@ -115,16 +115,17 @@ if __name__ == "__main__":
         prior_stack =  dmap.route_objects(obj_ids,priors,device_idxs,camera_idxs,run_device_ids = params.cuda_devices)
         
         # test on a single on-process pipeline
-        pipelines[0].set_device(0)
-        pipelines[0].set_cam_names(dmap.gpu_cam_names[0])
-        test = pipelines[0](frames[0],prior_stack[0])
+        # pipelines[0].set_device(0)
+        # pipelines[0].set_cam_names(dmap.gpu_cam_names[0])
+        # test = pipelines[0](frames[0],prior_stack[0])
         
         # TODO select correct pipeline based on pipeline pattern logic parameter
         detections,confs,classes,detection_cam_names,associations = dbank(prior_stack,frames,pipeline_idx = 0)
         
         # THIS MAY BE SLOW SINCE ITS DOUBLE INDEXING
-        detection_times = [timestamps[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names]
-    
+        detection_times = torch.tensor([timestamps[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
+        
+        print(len(obj_ids))
         terminated_objects = tracker.postprocess(detections,detection_times,classes,confs,associations,tstate)
         
         frames_processed += 1

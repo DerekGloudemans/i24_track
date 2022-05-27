@@ -1,4 +1,4 @@
-from i24_configparse.parse import parse_cfg
+from i24_configparse import parse_cfg
 import configparser
 import torch
 import re
@@ -39,7 +39,7 @@ class DeviceMap():
     def __init__(self):
         
         # load config
-        self = parse_cfg("DEFAULT",obj = self)
+        self = parse_cfg("TRACK_CONFIG_SECTION",obj = self)
 
         # load self.cam_extents
         self._parse_cameras(self.camera_extents_file)
@@ -173,8 +173,7 @@ class DeviceMap():
             selected = torch.where(device_idxs == gpu_id,torch.ones(device_idxs.shape),torch.zeros(device_idxs.shape)).nonzero().squeeze(1)
             
             selected_cams = camera_idxs[selected]
-            selected_gpu_cam_idx = self.gpu_cam_names[selected_cams,1]
-            
+            selected_gpu_cam_idx = torch.tensor([self.cam_gpu_idx[val][1] for val in selected_cams])
             selected_cam_names = [self.cam_names[i] for i in selected_cams]
             
             gpu_priors = (obj_ids[selected],priors[selected,:],selected_gpu_cam_idx,selected_cam_names)
@@ -196,7 +195,7 @@ class HeuristicDeviceMap(DeviceMap):
                     "c5":100,
                     "c6":1}
 
-        self.priority = [priority_dict[re.search("c\d",cam).group(0)] for cam in self.cam_names]
+        self.priority = torch.tensor([priority_dict[re.search("c\d",cam).group(0)] for cam in self.cam_names])
     
     def map_cameras(self,tstate,ts):
         """
@@ -230,38 +229,36 @@ class HeuristicDeviceMap(DeviceMap):
 
         # broadcast both to [n_objs,n_cameras,2]
         states_brx = states[:,0].unsqueeze(1).unsqueeze(2).expand(n_o,n_c,2)
-        states_bry = states[:,1].unsqueeze(1).unsqueeze(2).expand(n_o,n_c,2)
-        cams_brx = self.extents[:,[0,2]].unsqueeze(0).expand(n_o,n_c,2)
-        cams_bry = self.extents[:,[1,3]].unsqueeze(0).expand(n_o,n_c,2)
+        states_bry = states[:,1].unsqueeze(1).expand(n_o,n_c)
+        cams_brx = self.cam_extents[:,[0,1]].unsqueeze(0).expand(n_o,n_c,2)
+        cams_bry = self.cam_extents[:,2].unsqueeze(0).expand(n_o,n_c)
         
         # get map of where state is within range
-        x_pass = torch.sign(torch.mul(states_brx,cams_brx))
-        x_pass = (torch.mul(x_pass[:,0],x_pass[:,1]) -1 )* -2  # 1 if inside, 0 if outside
-        y_pass = torch.sign(torch.mul(states_bry,cams_bry))
-        y_pass = (torch.mul(y_pass[:,0],y_pass[:,1]) -1 )* -2  # 1 if inside, 0 if outside
+        x_pass = torch.sign(states_brx-cams_brx)
+        x_pass = ((torch.mul(x_pass[:,:,0],x_pass[:,:,1]) -1 )* -0.5).int()  # 1 if inside, 0 if outside
         
-        is_visible = torch.mul(x_pass,y_pass)
+        is_visible = x_pass
         
         
         
         ## create ts_valid, [n_objs,n_cameras]
-        ts_valid = torch.nan_to_num(ts).clamp(0,1).int().unsqueeze(0).expand(n_o,n_c)
+        ts_valid = torch.nan_to_num(ts+1).clamp(0,1).int().unsqueeze(0).expand(n_o,n_c)
         
         # create priority, [n_objs,n_cameras]
         priority = self.priority.unsqueeze(0).expand(n_o,n_c)
         
         # create distance, [n_objs,n_cameras]        
-        center_x = cams_brx.sum(dim = 1)
-        center_y = cams_bry.sum(dim = 1)
+        center_x = cams_brx.sum(dim = 2)/2.0
+        center_y = cams_bry
         
-        dist = ((center_x - states_brx[:,:,0]).pow(2) + (center_y - states_bry[:,:,0]).pow(2)).sqrt()
+        dist = ((center_x - states_brx[:,:,0]).pow(2) + (center_y - states_bry).pow(2)).sqrt()
         
         score = 1/dist * priority * ts_valid * is_visible
         
         cam_map = score.argmax(dim = 1)
-        
+        obj_times = ts[cam_map]
         
         #TODO need to unmap cameras to idxs here?
         
-        return cam_map
+        return cam_map,obj_times
     
