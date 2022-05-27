@@ -19,7 +19,8 @@ if __name__ == "__main__":
     from src.scene.devicemap      import get_DeviceMap
     from src.scene.homography     import HomographyWrapper
     from src.detect.devicebank    import DeviceBank
-    from src.load                 import DummyNoiseLoader,MCLoader
+    from src.load                 import DummyNoiseLoader#,MCLoader
+    from src.gpu_load             import MCLoader
     #from src.db_write             import DBWriter
     
     
@@ -101,7 +102,7 @@ if __name__ == "__main__":
         obj_ids,priors,selected_obj_idxs = tracker.preprocess(tstate,obj_times)
         
         
-         # slice only objects we care to pass to DeviceBank on this set of frames
+          # slice only objects we care to pass to DeviceBank on this set of frames
         # DEREK NOTE may run into trouble here since dmap and preprocess implicitly relies on the list ordering of tstate
         # if len(obj_ids) > 0:
         #     obj_ids     =     obj_ids[selected_obj_idxs]
@@ -125,7 +126,6 @@ if __name__ == "__main__":
         # THIS MAY BE SLOW SINCE ITS DOUBLE INDEXING
         detection_times = torch.tensor([timestamps[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
         
-        print(len(obj_ids))
         terminated_objects = tracker.postprocess(detections,detection_times,classes,confs,associations,tstate)
         
         frames_processed += 1

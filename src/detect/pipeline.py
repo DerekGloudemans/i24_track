@@ -96,7 +96,7 @@ class RetinanetFullFramePipeline(DetectPipeline):
         self.detector = Retinanet3D(self.n_classes)
     
         # quantize model         
-        if False and self.quantize:
+        if self.quantize:
             self.detector = self.detector.half()
         
         # load detector weights
