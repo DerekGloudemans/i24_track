@@ -138,21 +138,21 @@ class Torch_KF(object):
         elif type(target_time) == list: # 2 and 4.
             target_time = torch.tensor(target_time,dtype = torch.double) 
             
-        if idxs is None:
+            if idxs is None:
+                dt = target_time - self.T
+                return dt
+            else:
+                dt = torch.zeros(len(self.X))
+                dt = dt + self.dt_default if use_default else dt
+                
+                for i in range(len(idxs)):
+                    dt[idxs[i]] = target_time[i] - self.T[idxs[i]]
+                
+                return dt
+                    
+        else: # 3. time is tensor
             dt = target_time - self.T
             return dt
-        else:
-            dt = torch.zeros(len(self.X))
-            dt = dt + self.dt_default if use_default else dt
-            
-            for i in range(len(idxs)):
-                dt[idxs[i]] = target_time[i] - self.T[idxs[i]]
-            
-            return dt
-                    
-        # else: # 3. time is tensor
-        #     dt = target_time - self.T
-        #     return dt
         
 
         
