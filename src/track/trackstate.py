@@ -106,7 +106,6 @@ class TrackState():
         
     def remove(self,ids):
         removals = {}
-        
         for id in ids:
             # store history
             datum = []
@@ -118,9 +117,8 @@ class TrackState():
             del self.fsld[id]
             
         self.kf.remove(ids)
-        
-    
         return removals
+    
     
     def get_dt(self,target_times,idxs = None):
         return self.kf.get_dt(target_times,idxs = idxs)

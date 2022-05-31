@@ -19,9 +19,9 @@ if __name__ == "__main__":
     from src.scene.devicemap      import get_DeviceMap
     from src.scene.homography     import HomographyWrapper
     from src.detect.devicebank    import DeviceBank
-    from src.load                 import DummyNoiseLoader#,MCLoader
-    from src.gpu_load             import MCLoader
-    #from src.db_write             import DBWriter
+    from src.load                 import DummyNoiseLoader,MCLoader
+    #from src.gpu_load             import MCLoader
+    from src.db_write             import WriteWrapper
     
     
     ctx = mp.get_context('spawn')
@@ -74,7 +74,7 @@ if __name__ == "__main__":
     
     
     # initialize DBWriter object
-    #db_writer = DBWriter()
+    dbw = WriteWrapper()
     
     
     # intialize empty TrackState Object
@@ -130,8 +130,9 @@ if __name__ == "__main__":
         
         frames_processed += 1
         
-    
-        #db_writer(terminated_objects)
+        dbw.insert(terminated_objects)
+        #print("Active Trajectories: {}  Terminated Trajectories: {}   Documents in database: {}".format(len(tstate),len(terminated_objects),len(dbw)))
+        
         
         # optionally, plot outputs
         

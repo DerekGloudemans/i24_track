@@ -141,7 +141,7 @@ class Torch_KF(object):
             dt = target_time - self.T
             return dt
         else:
-            print(len(idxs),len(target_time),self.T.shape[0])
+            #print(len(idxs),len(target_time),self.T.shape[0])
 
             dt = torch.zeros(len(self.X))
             dt = dt + self.dt_default if use_default else dt
