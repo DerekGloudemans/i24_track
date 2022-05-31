@@ -32,7 +32,7 @@ if __name__ == "__main__":
     
     
     # load parameters
-    params = parse_cfg("TRACK_CONFIG_SECTION",cfg_name="execute.config")
+    params = parse_cfg("TRACK_CONFIG_SECTION",cfg_name="execute.config",SCHEMA = False)
     
     # verify config notion of GPUs matches torch.cuda notion of available devices
     # get available devices
@@ -54,10 +54,10 @@ if __name__ == "__main__":
     hg = HomographyWrapper()
     
     # initialize pipelines
-    pipelines = params.pipelines[1:-1].split(",")
+    pipelines = params.pipelines
     pipelines = [get_Pipeline(item,hg) for item in pipelines]
     
-    associators = params.associators[1:-1].split(",")
+    associators = params.associators
     associators = [get_Associator(item) for item in associators]
     
     # initialize tracker
