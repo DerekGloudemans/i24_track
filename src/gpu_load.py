@@ -54,18 +54,18 @@ class MCLoader():
     def get_frames(self,target_time):
         
         frames = [[] for i in range(torch.cuda.device_count())]
-        timestamps = [[] for i in range(torch.cuda.device_count())]
+        timestamps = []
         for dev_idx,this_dev_loaders in enumerate(self.device_loaders):
             for loader in this_dev_loaders:
                 frame,ts = next(loader)
                 frames[dev_idx].append(frame)
-                timestamps[dev_idx].append(ts)
+                timestamps.append(ts)
             
         # stack each list
         out = []
         for lis in frames:
             out.append(torch.stack(lis))
-        timestamps = [torch.tensor(item) for item in timestamps]
+        timestamps = torch.tensor(timestamps)
         
         return out,timestamps
     
@@ -110,7 +110,7 @@ class GPUBackendFrameGetter:
         
         
         frame = self.queue.get(timeout = 10)
-        ts = frame[1] / 10e9
+        ts = frame[1] #/ 10e9
         im = frame[0]
         
         return im,ts
@@ -169,8 +169,13 @@ def load_queue_vpf(q,file,device,buffer_size,resize):
             # Normalize to range desired by NN. Originally it's 
             surface_tensor = surface_tensor.type(dtype=torch.cuda.FloatTensor)
             
+            
             # apply normalization
             surface_tensor = F.normalize(surface_tensor,mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            
+            # TODO - I think the model is trained with inverted RGB channels unfornately so this is a temporary fix
+            surface_tensor = surface_tensor[[2,1,0],:,:]
+
             
             frame = (surface_tensor,pkt.pts)
             q.put(frame)

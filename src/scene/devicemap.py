@@ -49,8 +49,8 @@ class DeviceMap():
         extents = []
         [(cam_names.append(key),extents.append(self.cam_extents[key])) for key in self.cam_extents.keys()]
         self.cam_names = cam_names
+        self.cam_extents_dict = self.cam_extents.copy()
         self.cam_extents = torch.tensor(extents)
-
         
         # invert  cam_names into dict
         self.cam_idxs = {}

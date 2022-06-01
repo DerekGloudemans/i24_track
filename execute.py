@@ -1,6 +1,110 @@
 import torch.multiprocessing as mp
 import time
 
+import numpy as np
+import cv2
+from torchvision import transforms
+
+def plot(tstate,frames,ts,gpu_cam_names,hg, mask = None,extents = None):
+    """
+    Plots the set of active cameras, or a subset thereof
+    tstate - TrackState object
+    ts     - stack of camera timestamps
+    frames - stack of frames as pytorch tensors
+    hg     - Homography Wrapper object
+    mask   - None or list of camera names to be plotted
+    extents - None or cam extents from dmap.cam_extents_dict
+    """
+    
+    # Internal settings that shouldn't change after initial tuning
+    PLOT_TOLERANCE = 20 # feet
+    MONITOR_SIZE   = (2160,3840)
+    denorm = transforms.Normalize(mean = [-0.485/0.229, -0.456/0.224, -0.406/0.225],
+                                       std = [1/0.229, 1/0.224, 1/0.225])
+    #mask = ["p1c1"]
+    
+    # 1. prep frames
+    # move to CPU
+    frames = [item.cpu() for item in frames]
+        
+    # stack all frames into single list
+    frames = torch.cat(frames,dim = 0)
+    #ts =  torch.cat(ts,dim = 0)
+    cam_names =  [item for sublist in gpu_cam_names for item in sublist]
+
+    # get mask
+    if mask is not None:
+        keep = []
+        keep_cam_names = []
+        for idx,cam in enumerate(cam_names):
+            if cam in mask:
+                keep.append(idx)
+                keep_cam_names.append(cam)
+        
+        # mask relevant cameras
+        cam_names = keep_cam_names
+        ts = ts[keep]
+        frames = frames[keep,...]
+    
+    #2. plot boxes
+    # for each frame
+    plot_frames = []
+    for f_idx in range(len(frames)):
+        
+        # get the reported position of each object from tstate for that time
+        ids,boxes = tstate(ts[f_idx])
+        
+        if extents is not None and len(boxes) > 0 :
+            xmin,xmax,_ = extents[cam_names[f_idx]]
+            
+            # select objects that fall within that camera's space range (+ some tolerance)
+            keep_obj = torch.mul(torch.where(boxes[:,0] > xmin - PLOT_TOLERANCE, 1,0),torch.where(boxes[:,0] < xmax + PLOT_TOLERANCE, 1,0)).nonzero().squeeze(1)
+            boxes = boxes[keep_obj]
+            ids = ids[keep_obj]
+                
+        # convert frame into cv2 image
+        fr = denorm(frames[f_idx]).numpy().transpose(1, 2, 0)#[:,:,::-1]
+        #fr = frames[f_idx].numpy().transpose(1,2,0)     
+        # use hg to plot the boxes and IDs in that camera
+        if boxes is not None and len(boxes) > 0:
+            fr = hg.plot_state_boxes(fr.copy()*255, boxes,name = cam_names[f_idx],labels = ids)
+        
+        # append to array of frames
+        plot_frames.append(fr)
+    
+        
+    #3. tile frames
+    n_ims = len(plot_frames)
+    n_row = int(np.round(np.sqrt(n_ims)))
+    n_col = int(np.ceil(n_ims/n_row))
+    
+    cat_im = np.zeros([1080*n_row,1920*n_col,3])
+    for im_idx, original_im in enumerate(plot_frames):
+        row = im_idx // n_col
+        col = im_idx % n_col
+        cat_im[row*1080:(row+1)*1080,col*1920:(col+1)*1920,:] = original_im
+    
+    # resize to fit on standard monitor
+    trunc_h = cat_im.shape[0] / MONITOR_SIZE[0]
+    trunc_w = cat_im.shape[1] / MONITOR_SIZE[1]
+    trunc =  max(trunc_h,trunc_w)
+    new_size = (int(cat_im.shape[1]//trunc),int(cat_im.shape[0]//trunc))
+    cat_im = cv2.resize(cat_im,new_size) /255.0
+    
+    # plot
+    cv2.imshow("frame",cat_im)
+    #cv2.setWindowTitle("frame",str(self.frame_num))
+    key = cv2.waitKey(1)
+    if key == ord("p"):
+        cv2.waitKey(0)
+    elif key == ord("q"):
+            cv2.destroyAllWindows()
+            shutdown()
+    
+def shutdown():
+    raise KeyboardInterrupt("Manual Shutdown triggered")
+
+
 if __name__ == "__main__":
     #     try:
     #         mp.set_start_method('spawn')
@@ -135,5 +239,10 @@ if __name__ == "__main__":
         
         
         # optionally, plot outputs
+        if True:
+            mask = ["p1c2","p1c3","p1c4","p1c5"]
+            plot(tstate,frames,timestamps,dmap.gpu_cam_names,hg,extents = dmap.cam_extents_dict,mask = mask)
+    
         
+
     
