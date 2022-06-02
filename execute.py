@@ -6,7 +6,7 @@ import cv2
 from torchvision import transforms
 
 
-def plot(tstate, frames, ts, gpu_cam_names, hg, mask=None, extents=None):
+def plot(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None):
     """
     Plots the set of active cameras, or a subset thereof
     tstate - TrackState object
@@ -47,6 +47,9 @@ def plot(tstate, frames, ts, gpu_cam_names, hg, mask=None, extents=None):
         ts = ts[keep]
         frames = frames[keep, ...]
 
+    class_by_id = tstate.get_classes()
+
+
     # 2. plot boxes
     # for each frame
     plot_frames = []
@@ -54,9 +57,8 @@ def plot(tstate, frames, ts, gpu_cam_names, hg, mask=None, extents=None):
 
         # get the reported position of each object from tstate for that time
         ids, boxes = tstate(ts[f_idx],with_direction=True)
-
-        print(boxes)
-
+        classes = torch.tensor([class_by_id[id.item()] for id in ids])
+        
         if extents is not None and len(boxes) > 0:
             xmin, xmax, _ = extents[cam_names[f_idx]]
 
@@ -65,14 +67,22 @@ def plot(tstate, frames, ts, gpu_cam_names, hg, mask=None, extents=None):
                 boxes[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1)
             boxes = boxes[keep_obj,:]
             ids = ids[keep_obj]
-
+            classes = classes[keep_obj]
+            classes = [hg.hg1.class_dict[cls.item()] for cls in classes]
+            
         # convert frame into cv2 image
         fr = denorm(frames[f_idx]).numpy().transpose(1, 2, 0)  # [:,:,::-1]
         #fr = frames[f_idx].numpy().transpose(1,2,0)
         # use hg to plot the boxes and IDs in that camera
         if boxes is not None and len(boxes) > 0:
+            labels = ["{}: {}".format(classes[i],ids[i]) for i in range(len(ids))]
+            color_slice = colors[ids%colors.shape[0],:]
+            
+            if color_slice.ndim == 1:
+                color_slice = color_slice[np.newaxis,:]
+            
             fr = hg.plot_state_boxes(
-                fr.copy()*255, boxes, name=cam_names[f_idx], labels=ids)
+                fr.copy()*255, boxes, name=cam_names[f_idx], labels=labels,thickness = 3, color = color_slice)
 
         # append to array of frames
         plot_frames.append(fr)
@@ -131,6 +141,8 @@ if __name__ == "__main__":
     from src.db_write import WriteWrapper
 
     ctx = mp.get_context('spawn')
+
+    colors = np.random.randint(0,255,[1000,3])
 
     os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean"
     os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
@@ -240,5 +252,6 @@ if __name__ == "__main__":
         # optionally, plot outputs
         if True:
             mask = ["p1c2", "p1c3", "p1c4", "p1c5"]
+            #mask = None
             plot(tstate, frames, timestamps, dmap.gpu_cam_names,
-                 hg, extents=dmap.cam_extents_dict, mask=mask)
+                 hg, colors,extents=dmap.cam_extents_dict, mask=mask)

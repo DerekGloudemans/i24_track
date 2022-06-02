@@ -119,7 +119,12 @@ class TrackState():
         self.kf.remove(ids)
         return removals
     
-    
+    def get_classes(self):
+        classes = {}
+        for id in self.all_classes.keys():
+            classes[id] = np.argmax(self.all_classes[id]) 
+        return classes
+        
     def get_dt(self,target_times,idxs = None):
         return self.kf.get_dt(target_times,idxs = idxs)
     

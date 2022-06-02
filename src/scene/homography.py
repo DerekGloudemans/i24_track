@@ -692,6 +692,10 @@ class Homography():
         
         for idx, bbox_3d in enumerate(boxes):
             
+            if type(color) == np.ndarray:
+                c = (int(color[idx,0]),int(color[idx,1]),int(color[idx,2]))
+            else:
+                c = color
             # TODO - check whether box mostly falls within frame
             
             for a in range(len(bbox_3d)):
@@ -699,17 +703,17 @@ class Homography():
                 for b in range(a,len(bbox_3d)):
                     bb = bbox_3d[b]
                     if DRAW[a][b] == 1:
-                        try:
-                            im = cv2.line(im,(int(ab[0]),int(ab[1])),(int(bb[0]),int(bb[1])),color,thickness)
-                        except:
+                        #try:
+                            im = cv2.line(im,(int(ab[0]),int(ab[1])),(int(bb[0]),int(bb[1])),c,thickness)
+                        #except:
                             pass
         
             if labels is not None:
                 label = labels[idx]
                 left  = bbox_3d[0,0]
                 top   = bbox_3d[0,1]
-                im    = cv2.putText(im,"{}".format(label),(int(left),int(top - 10)),cv2.FONT_HERSHEY_PLAIN,1,(0,0,0),3)
-                im    = cv2.putText(im,"{}".format(label),(int(left),int(top - 10)),cv2.FONT_HERSHEY_PLAIN,1,(255,255,255),1)
+                im    = cv2.putText(im,"{}".format(label),(int(left),int(top - 10)),cv2.FONT_HERSHEY_PLAIN,2,(0,0,0),3)
+                im    = cv2.putText(im,"{}".format(label),(int(left),int(top - 10)),cv2.FONT_HERSHEY_PLAIN,2,(255,255,255),1)
             
         return im
         
@@ -828,6 +832,7 @@ class HomographyWrapper():
         self.hg1 = get_homographies(save_file = hg1 ,direction = "EB")
         self.hg2 = get_homographies(save_file = hg2 ,direction = "WB")
         
+        self.colors = np.random.randint(0,255,[1000,3]) 
         
     ## Pass-through functions 
     def guess_heights(self,classes):
