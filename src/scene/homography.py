@@ -9,7 +9,7 @@ import sys, os
 import csv
 import _pickle as pickle
 
-def get_homographies(save_file = "i24_all_homography.cpkl", directory = "/home/worklab/Documents/derek/i24-dataset-gen/DATA/tform", direction = "EB",fit_Z = True):
+def get_homographies(save_file = "i24_all_homography.cpkl", directory = "/home/derek/Documents/derek/i24-dataset-gen/DATA/tform2", direction = "EB",fit_Z = True):
     """
     Returns a Homography object with pre-loaded correspondences
     save - (None or str) path to save_file - if file exists, it will be opened and returned
@@ -31,8 +31,8 @@ def get_homographies(save_file = "i24_all_homography.cpkl", directory = "/home/w
             
             print("Adding camera {} to homography".format(camera_name))
             
-            data_file = "/home/worklab/Data/dataset_alpha/manual_correction/rectified_{}_0_track_outputs_3D.csv".format(camera_name)
-            vp_file = "/home/worklab/Documents/derek/i24-dataset-gen/DATA/vp/{}_axes.csv".format(camera_name)
+            data_file = "/home/derek/Data/dataset_alpha/manual_correction/rectified_{}_0_track_outputs_3D.csv".format(camera_name)
+            vp_file = "/home/derek/Documents/derek/i24-dataset-gen/DATA/vp/{}_axes.csv".format(camera_name)
             
             point_file = os.path.join(directory,"{}_{}_im_lmcs_transform_points.csv".format(camera_name,direction))
             if not os.path.exists(point_file):
@@ -819,12 +819,15 @@ class HomographyWrapper():
                 used already added
         hg2 - initialized Homography object with the same set of correspondece names
         """
-        self.hg1 = hg1
-        self.hg2 = hg2
-        
+         
         if hg1 is None and hg2 is None:
-            self.hg1 = get_homographies(save_file = "EB_homography.cpkl",direction = "EB")
-            self.hg2 = get_homographies(save_file = "WB_homography.cpkl",direction = "WB")
+            hg1 = "EB_homography.cpkl"
+            hg2 = "WB_homography.cpkl"
+        
+
+        self.hg1 = get_homographies(save_file = hg1 ,direction = "EB")
+        self.hg2 = get_homographies(save_file = hg2 ,direction = "WB")
+        
         
     ## Pass-through functions 
     def guess_heights(self,classes):
@@ -962,23 +965,24 @@ if True and __name__ == "__main__":
     # del hg
     
     # plot test points
-    im_dir = "/home/worklab/Documents/derek/i24-dataset-gen/DATA/vp"
-    hg = get_homographies()
-    # hg.plot_test_point([800,108,0],im_dir)
+    hg = HomographyWrapper()
+    # im_dir = "/home/worklab/Documents/derek/i24-dataset-gen/DATA/vp"
+    # hg = get_homographies()
+    # # hg.plot_test_point([800,108,0],im_dir)
     
-    # test Homography Wrapper
-    directory = "/home/worklab/Documents/derek/i24-dataset-gen/DATA/tform5"
-    hg1 = get_homographies(save_file = "EB_homography5.cpkl",directory = directory,direction = "EB",fit_Z = False)
-    hg2 = get_homographies(save_file = "WB_homography5.cpkl",directory = directory,direction = "WB",fit_Z = False)
+    # # test Homography Wrapper
+    # directory = "/home/worklab/Documents/derek/i24-dataset-gen/DATA/tform5"
+    # hg1 = get_homographies(save_file = "EB_homography5.cpkl",directory = directory,direction = "EB",fit_Z = False)
+    # hg2 = get_homographies(save_file = "WB_homography5.cpkl",directory = directory,direction = "WB",fit_Z = False)
     
-    hgw = HomographyWrapper(hg1 = hg1,hg2 = hg2)
+    # hgw = HomographyWrapper(hg1 = hg1,hg2 = hg2)
     
-    # frame = hg1.plot_boxes(frame,boxes,color = (0,0,255))
-    # test_boxes = hgw.im_to_state(boxes,name = camera_name, heights = hgw.guess_heights(classes))
-    # frame = hgw.plot_state_boxes(frame,test_boxes,color = (255,0,0),secondary_color = (0,255,0), name = camera_name)
-    # cv2.imshow("frame",frame)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    # # frame = hg1.plot_boxes(frame,boxes,color = (0,0,255))
+    # # test_boxes = hgw.im_to_state(boxes,name = camera_name, heights = hgw.guess_heights(classes))
+    # # frame = hgw.plot_state_boxes(frame,test_boxes,color = (255,0,0),secondary_color = (0,255,0), name = camera_name)
+    # # cv2.imshow("frame",frame)
+    # # cv2.waitKey(0)
+    # # cv2.destroyAllWindows()
     
     
     

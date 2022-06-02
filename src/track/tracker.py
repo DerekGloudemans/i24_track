@@ -264,7 +264,7 @@ class BaseTracker():
             # create direction tensor based on location
             directions = torch.where(new_detections[:,1] > 60, torch.zeros(new_idxs.shape)-1,torch.ones(new_idxs.shape))
             
-            tstate.add(new_detections,directions,new_times,new_classes,new_confs)
+            tstate.add(new_detections,directions,new_times,new_classes,new_confs,init_speed = True)
           
         # if no detections, increment fsld in all tracked objects
         else:

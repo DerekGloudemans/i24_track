@@ -71,9 +71,12 @@ class MCLoader():
 
         cam_sequences = {}        
         for file in os.listdir(directory):
-            sequence = os.path.join(directory,file)
-            cam_name = re.search("p\dc\d",sequence).group(0)
-            cam_sequences[cam_name] = sequence
+            try:
+                sequence = os.path.join(directory,file)
+                cam_name = re.search("p\dc\d",sequence).group(0)
+                cam_sequences[cam_name] = sequence
+            except:
+                pass
         
         # device loader is a list of lists, with list i containing all loaders for device i (hopefully in order but not well enforced by dictionary so IDK)
         self.device_loaders = [[] for i in range(torch.cuda.device_count())]
