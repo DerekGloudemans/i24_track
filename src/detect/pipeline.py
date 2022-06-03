@@ -155,7 +155,7 @@ class RetinanetFullFramePipeline(DetectPipeline):
             detections = self.hg.im_to_state(detections,name = detection_cam_names,classes = classes)
             detections = self.hg.state_to_space(detections)
             # state space NMS
-            mask           = space_nms(detections,confs,threshold = self.im_nms_iou)
+            mask           = space_nms(detections,confs,threshold = self.space_nms_iou)
             confs          = confs[mask]
             classes        = classes[mask]
             detections     = detections[mask,:,:]

@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from scipy.optimize import linear_sum_assignment
 
-
+from ..util.bbox import im_nms,space_nms
 from i24_configparse import parse_cfg
 
 
@@ -59,7 +59,7 @@ class HungarianIOUAssociator(Associator):
         self = parse_cfg("DEFAULT",obj = self)
         
         #self.device = torch.cuda.device("cuda:{}".format(self.device_id) if self.device_id != -1 else "cpu")
-        # self.min_match_iou
+        #print("Matching min IOU: {}".format(self.min_match_iou))
     
     def __call__(self,obj_ids,priors,detections,hg):
        """
@@ -83,6 +83,10 @@ class HungarianIOUAssociator(Associator):
        if len(first) == 0:   
            return torch.zeros(len(second))-1
        
+       # print("Priors:")
+       # print(first)
+       # print("Detections:")
+       # print(second)
 
 
 
@@ -109,11 +113,12 @@ class HungarianIOUAssociator(Associator):
        #get weight matrix
        second = second.unsqueeze(0).repeat(f,1,1).double()
        first = first.unsqueeze(1).repeat(1,s,1).double()
-       dist = 1.0 - self.md_iou(first,second)
+       dist = self.md_iou(first,second)
         
-                
+       print(obj_ids)
+       print(dist)
        try:
-           a, b = linear_sum_assignment(dist.data.numpy()) 
+           a, b = linear_sum_assignment(dist.data.numpy(),maximize = True) 
        except ValueError:
             return torch.zeros(s)-1
             print("DEREK USE LOGGER WARNING HERE")
@@ -128,13 +133,19 @@ class HungarianIOUAssociator(Associator):
        # remove any matches too far away
        # TODO - Vectorize this
        for i in range(len(matchings)):
-           if matchings[i] != -1 and  dist[matchings[i],i] > (1-self.min_match_iou):
+           if matchings[i] != -1 and  dist[matchings[i],i] < (self.min_match_iou):
                matchings[i] = -1    
     
         # matchings currently contains object indexes - swap to obj_ids
        for i in range(len(matchings)):
            if matchings[i] != -1:
                matchings[i] = obj_ids[matchings[i]]
+               
+       # print("Dist:")
+       # print(dist)
+       # print("Matches:")
+       # print(matchings)
+        
        return torch.from_numpy(matchings)
     
             
@@ -207,7 +218,7 @@ class BaseTracker():
         return torch.tensor([i for i in range(len(tstate))])
         
 
-    def postprocess(self,detections,detection_times,classes,confs,assigned_ids,tstate,meas_idx = 1):
+    def postprocess(self,detections,detection_times,classes,confs,assigned_ids,tstate,meas_idx = 1,hg = None):
         """
         Updates KF representation of objects where assigned_id is not -1 (unassigned)
         Adds other objects as new detections
@@ -237,10 +248,11 @@ class BaseTracker():
                     
                 
 
-                # TODO this is going to give an issue when some but not all objects need to be rolled forward
+                # TODO this may give an issue when some but not all objects need to be rolled forward
                 # roll existing objects forward to the detection times
                 dts = tstate.get_dt(update_times,idxs = update_ids)
                 tstate.predict(dt = dts)
+            
             
                 # update assigned detections
                 update_detections = detections[update_idxs,:]
@@ -261,10 +273,38 @@ class BaseTracker():
             new_confs = confs[new_idxs]
             new_times = detection_times[new_idxs]
             
+            
+            # do nms across all device batches to remove dups
+            if hg is not None:
+                space_new = hg.state_to_space(new_detections)
+                keep = space_nms(space_new,new_confs)
+                new_detections = detections[keep,:]
+                new_classes = classes[keep]
+                new_confs = confs[keep]
+                new_times = detection_times[keep]
+            
             # create direction tensor based on location
-            directions = torch.where(new_detections[:,1] > 60, torch.zeros(new_idxs.shape)-1,torch.ones(new_idxs.shape))
+            directions = torch.where(new_detections[:,1] > 60, torch.zeros(new_confs.shape)-1,torch.ones(new_confs.shape))
             
             tstate.add(new_detections,directions,new_times,new_classes,new_confs,init_speed = True)
+            
+            
+            # do TODO nms on all objects to remove overlaps, where score = # of frames since initialized
+            if hg is not None:
+                ids,states = tstate()
+                space = hg.state_to_space(states)
+                lifespans = tstate.get_lifespans()
+                scores = torch.tensor([lifespans[id.item()] for id in ids])
+                keep = space_nms(space,scores.float(),threshold = 0.1)
+                keep_ids = ids[keep]
+                
+                removals = ids.tolist()
+                for id in keep_ids:
+                    removals.remove(id)
+                    
+                tstate.remove(removals)
+                        
+            
           
         # if no detections, increment fsld in all tracked objects
         else:

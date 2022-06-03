@@ -229,9 +229,9 @@ if __name__ == "__main__":
             obj_ids, priors, device_idxs, camera_idxs, run_device_ids=params.cuda_devices)
 
         # test on a single on-process pipeline
-        # pipelines[0].set_device(0)
-        # pipelines[0].set_cam_names(dmap.gpu_cam_names[0])
-        # test = pipelines[0](frames[0],prior_stack[0])
+        pipelines[0].set_device(0)
+        pipelines[0].set_cam_names(dmap.gpu_cam_names[0])
+        test = pipelines[0](frames[0],prior_stack[0])
 
         # TODO select correct pipeline based on pipeline pattern logic parameter
         detections, confs, classes, detection_cam_names, associations = dbank(
@@ -242,7 +242,7 @@ if __name__ == "__main__":
             [timestamps[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
 
         terminated_objects = tracker.postprocess(
-            detections, detection_times, classes, confs, associations, tstate)
+            detections, detection_times, classes, confs, associations, tstate, hg = hg)
 
         frames_processed += 1
 
@@ -250,6 +250,7 @@ if __name__ == "__main__":
         #print("Active Trajectories: {}  Terminated Trajectories: {}   Documents in database: {}".format(len(tstate),len(terminated_objects),len(dbw)))
 
         # optionally, plot outputs
+        print(tstate())
         if True:
             mask = ["p1c2", "p1c3", "p1c4", "p1c5"]
             #mask = None

@@ -50,7 +50,7 @@ class TrackState():
         except AttributeError: # no objects in self.kf.X
             return 0
      
-    def __call__(self,target_time = None,with_direction = False,mode = "tensor"):
+    def __call__(self,target_time = None,with_direction = True,mode = "tensor"):
         """
         returns current state of tracked objects
         :param target_time (float) - time at which the position of objects should be returned
@@ -124,7 +124,13 @@ class TrackState():
         for id in self.all_classes.keys():
             classes[id] = np.argmax(self.all_classes[id]) 
         return classes
-        
+    
+    def get_lifespans(self):
+        lifespans = {}
+        for id in self._history.keys():
+            lifespans[id] = len(self._history[id])
+        return lifespans
+    
     def get_dt(self,target_times,idxs = None):
         return self.kf.get_dt(target_times,idxs = idxs)
     
