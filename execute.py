@@ -5,8 +5,10 @@ import numpy as np
 import cv2
 from torchvision import transforms
 
+from src.util.bbox import im_nms,space_nms
 
-def plot(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None):
+
+def plot(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None, fr_num = 0):
     """
     Plots the set of active cameras, or a subset thereof
     tstate - TrackState object
@@ -18,7 +20,7 @@ def plot(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None)
     """
 
     # Internal settings that shouldn't change after initial tuning
-    PLOT_TOLERANCE = 20  # feet
+    PLOT_TOLERANCE = 50  # feet
     MONITOR_SIZE = (2160, 3840)
     denorm = transforms.Normalize(mean=[-0.485/0.229, -0.456/0.224, -0.406/0.225],
                                   std=[1/0.229, 1/0.224, 1/0.225])
@@ -71,18 +73,20 @@ def plot(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None)
             classes = [hg.hg1.class_dict[cls.item()] for cls in classes]
             
         # convert frame into cv2 image
-        fr = denorm(frames[f_idx]).numpy().transpose(1, 2, 0)  # [:,:,::-1]
+        fr = (denorm(frames[f_idx]).numpy().transpose(1, 2, 0)*255)[:,:,::-1]
         #fr = frames[f_idx].numpy().transpose(1,2,0)
         # use hg to plot the boxes and IDs in that camera
         if boxes is not None and len(boxes) > 0:
+            
             labels = ["{}: {}".format(classes[i],ids[i]) for i in range(len(ids))]
             color_slice = colors[ids%colors.shape[0],:]
-            
+            #color_slice = [colors[id,:] for id in ids]
+            #color_slice = np.stack(color_slice)
             if color_slice.ndim == 1:
-                color_slice = color_slice[np.newaxis,:]
+                 color_slice = color_slice[np.newaxis,:]
             
             fr = hg.plot_state_boxes(
-                fr.copy()*255, boxes, name=cam_names[f_idx], labels=labels,thickness = 3, color = color_slice)
+                fr.copy(), boxes, name=cam_names[f_idx], labels=labels,thickness = 3, color = color_slice)
 
         # append to array of frames
         plot_frames.append(fr)
@@ -105,6 +109,7 @@ def plot(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None)
     new_size = (int(cat_im.shape[1]//trunc), int(cat_im.shape[0]//trunc))
     cat_im = cv2.resize(cat_im, new_size) / 255.0
 
+    cv2.imwrite("/home/derek/Desktop/temp_frames/{}.png".format(str(fr_num).zfill(4)),cat_im*255)
     # plot
     cv2.imshow("frame", cat_im)
     # cv2.setWindowTitle("frame",str(self.frame_num))
@@ -114,7 +119,6 @@ def plot(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None)
     elif key == ord("q"):
         cv2.destroyAllWindows()
         shutdown()
-
 
 def shutdown():
     raise KeyboardInterrupt("Manual Shutdown triggered")
@@ -136,8 +140,8 @@ if __name__ == "__main__":
     from src.scene.devicemap import get_DeviceMap
     from src.scene.homography import HomographyWrapper,Homography
     from src.detect.devicebank import DeviceBank
-    from src.load import DummyNoiseLoader, MCLoader
-    #from src.gpu_load             import MCLoader
+    from src.load import DummyNoiseLoader #,MCLoader
+    from src.gpu_load             import MCLoader
     from src.db_write import WriteWrapper
 
     ctx = mp.get_context('spawn')
@@ -229,18 +233,34 @@ if __name__ == "__main__":
             obj_ids, priors, device_idxs, camera_idxs, run_device_ids=params.cuda_devices)
 
         # test on a single on-process pipeline
-        pipelines[0].set_device(0)
-        pipelines[0].set_cam_names(dmap.gpu_cam_names[0])
-        test = pipelines[0](frames[0],prior_stack[0])
+        # pipelines[0].set_device(0)
+        # pipelines[0].set_cam_names(dmap.gpu_cam_names[0])
+        # test = pipelines[0](frames[0],prior_stack[0])
+
+
+        # TODO - full frame detections should probably get full set of objects?
 
         # TODO select correct pipeline based on pipeline pattern logic parameter
         detections, confs, classes, detection_cam_names, associations = dbank(
             prior_stack, frames, pipeline_idx=0)
-
+        
         # THIS MAY BE SLOW SINCE ITS DOUBLE INDEXING
         detection_times = torch.tensor(
             [timestamps[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
+        
+        if True and len(detections) > 0:
+            # do nms across all device batches to remove dups
+            space_new = hg.state_to_space(detections)
+            keep = space_nms(space_new,confs)
+            detections = detections[keep,:]
+            classes = classes[keep]
+            confs = confs[keep]
+            detection_times = detection_times[keep]
+        
+        # overwrite associations here
+        associations = associators[0](obj_ids,priors,detections,hg)
 
+        
         terminated_objects = tracker.postprocess(
             detections, detection_times, classes, confs, associations, tstate, hg = hg)
 
@@ -250,9 +270,8 @@ if __name__ == "__main__":
         #print("Active Trajectories: {}  Terminated Trajectories: {}   Documents in database: {}".format(len(tstate),len(terminated_objects),len(dbw)))
 
         # optionally, plot outputs
-        print(tstate())
-        if True:
-            mask = ["p1c2", "p1c3", "p1c4", "p1c5"]
+        if False:
+            mask = ["p1c1","p1c2", "p1c3", "p1c4", "p1c5","p1c6"]
             #mask = None
             plot(tstate, frames, timestamps, dmap.gpu_cam_names,
-                 hg, colors,extents=dmap.cam_extents_dict, mask=mask)
+                 hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed)

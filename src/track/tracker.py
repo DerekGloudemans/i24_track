@@ -114,9 +114,7 @@ class HungarianIOUAssociator(Associator):
        second = second.unsqueeze(0).repeat(f,1,1).double()
        first = first.unsqueeze(1).repeat(1,s,1).double()
        dist = self.md_iou(first,second)
-        
-       print(obj_ids)
-       print(dist)
+
        try:
            a, b = linear_sum_assignment(dist.data.numpy(),maximize = True) 
        except ValueError:
@@ -267,30 +265,31 @@ class BaseTracker():
               
             
             # add new detections as new objects
-            new_idxs = torch.tensor(new_idxs)
-            new_detections = detections[new_idxs,:]
-            new_classes = classes[new_idxs]
-            new_confs = confs[new_idxs]
-            new_times = detection_times[new_idxs]
+            if len(new_idxs) > 0:
+                new_idxs = torch.tensor(new_idxs)
+                new_detections = detections[new_idxs,:]
+                new_classes = classes[new_idxs]
+                new_confs = confs[new_idxs]
+                new_times = detection_times[new_idxs]
+                
+                
+                # # do nms across all device batches to remove dups
+                # if hg is not None:
+                #     space_new = hg.state_to_space(new_detections)
+                #     keep = space_nms(space_new,new_confs)
+                #     new_detections = detections[keep,:]
+                #     new_classes = classes[keep]
+                #     new_confs = confs[keep]
+                #     new_times = detection_times[keep]
+                
+                # create direction tensor based on location
+                directions = torch.where(new_detections[:,1] > 60, torch.zeros(new_confs.shape)-1,torch.ones(new_confs.shape))
+                
+                tstate.add(new_detections,directions,new_times,new_classes,new_confs,init_speed = True)
             
             
-            # do nms across all device batches to remove dups
-            if hg is not None:
-                space_new = hg.state_to_space(new_detections)
-                keep = space_nms(space_new,new_confs)
-                new_detections = detections[keep,:]
-                new_classes = classes[keep]
-                new_confs = confs[keep]
-                new_times = detection_times[keep]
-            
-            # create direction tensor based on location
-            directions = torch.where(new_detections[:,1] > 60, torch.zeros(new_confs.shape)-1,torch.ones(new_confs.shape))
-            
-            tstate.add(new_detections,directions,new_times,new_classes,new_confs,init_speed = True)
-            
-            
-            # do TODO nms on all objects to remove overlaps, where score = # of frames since initialized
-            if hg is not None:
+            # do nms on all objects to remove overlaps, where score = # of frames since initialized
+            if  hg is not None:
                 ids,states = tstate()
                 space = hg.state_to_space(states)
                 lifespans = tstate.get_lifespans()

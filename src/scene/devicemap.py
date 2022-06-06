@@ -170,7 +170,9 @@ class DeviceMap():
         for gpu_id in run_device_ids:
             
             # get all indices into device_idxs where device_idxs[i] == gpu_id
-            selected = torch.where(device_idxs == gpu_id,torch.ones(device_idxs.shape),torch.zeros(device_idxs.shape)).nonzero().squeeze(1)
+            #selected = torch.where(device_idxs == gpu_id,torch.ones(device_idxs.shape),torch.zeros(device_idxs.shape)).nonzero().squeeze(1)
+            selected = torch.where(device_idxs < 50,torch.ones(device_idxs.shape),torch.zeros(device_idxs.shape)).nonzero().squeeze(1)
+
             
             selected_cams = camera_idxs[selected]
             selected_gpu_cam_idx = torch.tensor([self.cam_gpu_idx[val][1] for val in selected_cams])

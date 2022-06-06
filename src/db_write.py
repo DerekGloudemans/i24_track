@@ -91,4 +91,4 @@ class WriteWrapper():
             #assert (len(self) == start_len + 1), "Document was not correctly inserted into database collection {} in tracker component (PID {})".format(self.raw_collection,self.PID)
             
 
-#test = WriteWrapper()
+test = WriteWrapper()

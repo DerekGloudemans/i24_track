@@ -899,25 +899,42 @@ class HomographyWrapper():
         if secondary_color is None:
             secondary_color = color
             
+            
+            
         # plot objects that are best fit by hg2
         ind = torch.where(boxes[:,1] > 60)[0] 
         
         labels1 = None
         if labels is not None:
             labels1 = [labels[i] for i in ind]
+        
         boxes1 = boxes[ind,:]
+        if type(secondary_color) == np.ndarray:
+            secondary_color = secondary_color[ind,:]
+            if secondary_color.ndim == 1:
+                secondary_color = secondary_color[np.newaxis,:]
+        
         if len(boxes1) > 0:
             im_boxes1 = self.state_to_im(boxes1,name = name)
             im = self.hg2.plot_boxes(im,im_boxes1,color = secondary_color,labels = labels1,thickness = thickness)
         
+        
+        
+        
         # plot objects that are best fit by hg1
         ind = torch.where(boxes[:,1] < 60)[0]
+        
         labels2 =  None
         if labels is not None:
-            labels2 = [labels[i] for i in ind]
-            
+            labels2 = [labels[i] for i in ind]   
 
         boxes2 = boxes[ind,:]
+        
+        if type(color) == np.ndarray:
+            color = color[ind,:]
+            if color.ndim == 1:
+                color = color[np.newaxis,:]
+        
         if len(boxes2) > 0:
             im_boxes2 = self.state_to_im(boxes2,name = name)
             

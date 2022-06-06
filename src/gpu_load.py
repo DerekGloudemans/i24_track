@@ -40,6 +40,8 @@ class MCLoader():
             cam_name = re.search("p\dc\d",sequence).group(0)
             cam_sequences[cam_name] = sequence
         
+        self.dummy_ts = 0
+        
         # device loader is a list of lists, with list i containing all loaders for device i (hopefully in order but not well enforced by dictionary so IDK)
         self.device_loaders = [[] for i in range(torch.cuda.device_count())]
         for key in cam_sequences.keys():
@@ -66,6 +68,9 @@ class MCLoader():
         for lis in frames:
             out.append(torch.stack(lis))
         timestamps = torch.tensor(timestamps)
+        
+        timestamps = timestamps * 0 + self.dummy_ts
+        self.dummy_ts += 1/30.0
         
         return out,timestamps
     
@@ -167,14 +172,14 @@ def load_queue_vpf(q,file,device,buffer_size,resize):
         
             # This is optional and depends on what you NN expects to take as input
             # Normalize to range desired by NN. Originally it's 
-            surface_tensor = surface_tensor.type(dtype=torch.cuda.FloatTensor)
+            surface_tensor = surface_tensor.type(dtype=torch.cuda.FloatTensor)/255.0
             
             
             # apply normalization
             surface_tensor = F.normalize(surface_tensor,mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
             
             # TODO - I think the model is trained with inverted RGB channels unfornately so this is a temporary fix
-            surface_tensor = surface_tensor[[2,1,0],:,:]
+            #surface_tensor = surface_tensor[[2,1,0],:,:] 
 
             
             frame = (surface_tensor,pkt.pts)

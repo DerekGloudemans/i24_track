@@ -70,7 +70,8 @@ class DetectPipeline():
         detections,confs,classes,detection_cam_names  = self.post_detect(detection_result,priors = priors)
         
         # Associate
-        matchings = self.associate(ids,priors,detections,self.hg)
+        #matchings = self.associate(ids,priors,detections,self.hg)
+        matchings = []
         del frames
         return detections,confs,classes,detection_cam_names,matchings
     
