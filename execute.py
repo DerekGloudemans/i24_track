@@ -35,6 +35,8 @@ def plot(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None,
     #ts =  torch.cat(ts,dim = 0)
     cam_names = [item for sublist in gpu_cam_names for item in sublist]
 
+
+    print(cam_names)
     # get mask
     if mask is not None:
         keep = []
@@ -46,12 +48,13 @@ def plot(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None,
 
         # mask relevant cameras
         cam_names = keep_cam_names
-        ts = ts[keep]
+        ts = [ts[idx] for idx in keep]
         frames = frames[keep, ...]
 
     class_by_id = tstate.get_classes()
 
-
+    print(cam_names)
+    
     # 2. plot boxes
     # for each frame
     plot_frames = []
@@ -88,6 +91,10 @@ def plot(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None,
             fr = hg.plot_state_boxes(
                 fr.copy(), boxes, name=cam_names[f_idx], labels=labels,thickness = 3, color = color_slice)
 
+        # plot timestamp
+        fr = cv2.putText(fr.copy(), "Timestamp: {:.3f}s".format(ts[f_idx]), (10,70), cv2.FONT_HERSHEY_PLAIN,2,(0,0,0),3)
+        fr = cv2.putText(fr.copy(), "Camera: {}".format(cam_names[f_idx]), (10,30), cv2.FONT_HERSHEY_PLAIN,2,(0,0,0),3)
+        
         # append to array of frames
         plot_frames.append(fr)
 
@@ -141,14 +148,15 @@ if __name__ == "__main__":
     from src.scene.homography import HomographyWrapper,Homography
     from src.detect.devicebank import DeviceBank
     from src.load import DummyNoiseLoader #,MCLoader
-    from src.gpu_load             import MCLoader
+    #from src.gpu_load             import MCLoader
+    from src.gpu_load_abstractor  import MCLoader, ManagerClock
     from src.db_write import WriteWrapper
 
     ctx = mp.get_context('spawn')
 
     colors = np.random.randint(0,255,[1000,3])
 
-    os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean"
+    os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_2"
     os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
 
     # load parameters
@@ -167,9 +175,13 @@ if __name__ == "__main__":
 
     # initialize multi-camera loader
     #loader = DummyNoiseLoader(dmap.camera_mapping_file)
-    in_dir = "/home/derek/Data/dataset_beta/sequence_1"
-    #in_dir = "/home/derek/Data/cv/video/08_06_2021"
-    loader = MCLoader(in_dir, dmap.camera_mapping_file, ctx)
+
+
+    #in_dir = "/home/derek/Data/dataset_beta/sequence_1"
+    #loader = MCLoader(in_dir, dmap.camera_mapping_file, ctx)
+
+    in_dir = "/home/derek/Data/cv/video/06-02-2022/batch1"
+    loader = MCLoader(in_dir, dmap.camera_mapping_file,dmap.cam_names, ctx)
 
     # initialize Homography object
     hg = HomographyWrapper(hg1 = params.eb_homography_file,hg2 = params.wb_homography_file)
@@ -198,80 +210,106 @@ if __name__ == "__main__":
     # intialize empty TrackState Object
     tstate = TrackState()
 
+    # get frames and timestamps
+    frames, timestamps = loader.get_frames(target_time = None)
+    
+    # initialize processing sync clock
+    start_ts = max(timestamps)
+    desired_processing_speed = 0    # for now, no constraint
+    nom_framerate = 30
+    clock  = ManagerClock(start_ts,desired_processing_speed, nom_framerate)
+    target_time = start_ts
+
+    # initial sync-up of all cameras
+    # TODO - note this means we always skip at least one frame at the beginning of execution
+    frames,timestamps = loader.get_frames(target_time)
+    
     # main loop
     frames_processed = 0
     start_time = time.time()
+    
+    # readout headers
+    print("Frame:    Since Start:  Frame BPS:    Sync Timestamp:     Max ts Deviation:     Active Objects:")
     while True:
-        fps = frames_processed/(time.time() - start_time)
-        print("\rTracking frame {} ({:.2f} bps average)".format(
-            frames_processed, fps), end='\r', flush=True)
-
-        # compute target time
-        target_time = None
-
-        # select pipeline for this frame
-        pipeline_idx = 0
-
-        # get frames and timestamps
-        frames, timestamps = loader.get_frames(target_time)
-
-        camera_idxs, device_idxs, obj_times = dmap(tstate, timestamps)
-        obj_ids, priors, selected_obj_idxs = tracker.preprocess(
-            tstate, obj_times)
-
-        # slice only objects we care to pass to DeviceBank on this set of frames
-        # DEREK NOTE may run into trouble here since dmap and preprocess implicitly relies on the list ordering of tstate
-        # if len(obj_ids) > 0:
-        #     obj_ids     =     obj_ids[selected_obj_idxs]
-        #     priors      =      priors[selected_obj_idxs,:]
-        #     device_idxs = device_idxs[selected_obj_idxs]
-        #     camera_idxs = camera_idxs[selected_obj_idxs]
-
-        # prep input stack by grouping priors by gpu
-        cam_idx_names = None  # map idxs to names here
-        prior_stack = dmap.route_objects(
-            obj_ids, priors, device_idxs, camera_idxs, run_device_ids=params.cuda_devices)
-
-        # test on a single on-process pipeline
-        # pipelines[0].set_device(0)
-        # pipelines[0].set_cam_names(dmap.gpu_cam_names[0])
-        # test = pipelines[0](frames[0],prior_stack[0])
-
-
-        # TODO - full frame detections should probably get full set of objects?
-
-        # TODO select correct pipeline based on pipeline pattern logic parameter
-        detections, confs, classes, detection_cam_names, associations = dbank(
-            prior_stack, frames, pipeline_idx=0)
         
-        # THIS MAY BE SLOW SINCE ITS DOUBLE INDEXING
-        detection_times = torch.tensor(
-            [timestamps[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
-        
-        if True and len(detections) > 0:
-            # do nms across all device batches to remove dups
-            space_new = hg.state_to_space(detections)
-            keep = space_nms(space_new,confs)
-            detections = detections[keep,:]
-            classes = classes[keep]
-            confs = confs[keep]
-            detection_times = detection_times[keep]
-        
-        # overwrite associations here
-        associations = associators[0](obj_ids,priors,detections,hg)
+        if False: # shortout actual processing
 
+            # select pipeline for this frame
+            pipeline_idx = 0
+    
+            camera_idxs, device_idxs, obj_times = dmap(tstate, timestamps)
+            obj_ids, priors, selected_obj_idxs = tracker.preprocess(
+                tstate, obj_times)
+    
+            # slice only objects we care to pass to DeviceBank on this set of frames
+            # DEREK NOTE may run into trouble here since dmap and preprocess implicitly relies on the list ordering of tstate
+            if len(obj_ids) > 0:
+                obj_ids     =     obj_ids[selected_obj_idxs]
+                priors      =      priors[selected_obj_idxs,:]
+                device_idxs = device_idxs[selected_obj_idxs]
+                camera_idxs = camera_idxs[selected_obj_idxs]
+    
+            # prep input stack by grouping priors by gpu
+            cam_idx_names = None  # map idxs to names here
+            prior_stack = dmap.route_objects(
+                obj_ids, priors, device_idxs, camera_idxs, run_device_ids=params.cuda_devices)
+    
+            # test on a single on-process pipeline
+            # pipelines[0].set_device(0)
+            # pipelines[0].set_cam_names(dmap.gpu_cam_names[0])
+            # test = pipelines[0](frames[0],prior_stack[0])
+    
+    
+            # TODO - full frame detections should probably get full set of objects?
+    
+            # TODO select correct pipeline based on pipeline pattern logic parameter
         
-        terminated_objects = tracker.postprocess(
-            detections, detection_times, classes, confs, associations, tstate, hg = hg)
+       
+            detections, confs, classes, detection_cam_names, associations = dbank(
+                prior_stack, frames, pipeline_idx=0)
+            
+            # THIS MAY BE SLOW SINCE ITS DOUBLE INDEXING
+            detection_times = torch.tensor(
+                [timestamps[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
+            
+            if True and len(detections) > 0:
+                # do nms across all device batches to remove dups
+                space_new = hg.state_to_space(detections)
+                keep = space_nms(space_new,confs)
+                detections = detections[keep,:]
+                classes = classes[keep]
+                confs = confs[keep]
+                detection_times = detection_times[keep]
+            
+            # overwrite associations here
+            associations = associators[0](obj_ids,priors,detections,hg)
+    
+            
+            terminated_objects = tracker.postprocess(
+                detections, detection_times, classes, confs, associations, tstate, hg = hg)
+
+            dbw.insert(terminated_objects)
+            #print("Active Trajectories: {}  Terminated Trajectories: {}   Documents in database: {}".format(len(tstate),len(terminated_objects),len(dbw)))
 
         frames_processed += 1
 
-        dbw.insert(terminated_objects)
-        #print("Active Trajectories: {}  Terminated Trajectories: {}   Documents in database: {}".format(len(tstate),len(terminated_objects),len(dbw)))
-
         # optionally, plot outputs
-        if False:
-            mask = ["p1c1","p1c2", "p1c3", "p1c4", "p1c5","p1c6"]
-            #mask = None
+        if True:
+            #mask = ["p1c1","p1c2", "p1c3", "p1c4", "p1c5","p1c6"]
+            mask = None
+            #mask = ["p48c01","p48c02","p48c03","p48c04","p48c05","p48c06"]
             plot(tstate, frames, timestamps, dmap.gpu_cam_names,
                  hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed)
+
+        
+        # text readout update
+        fps = frames_processed/(time.time() - start_time)
+        dev = [np.abs(t-target_time) for t in timestamps]
+        max_dev = max(dev)
+        print("\r{}        {:.3f}s       {:.2f}        {:.3f}              {:.3f}                {}".format(frames_processed, time.time() - start_time,fps,target_time, max_dev, len(tstate)), end='\r', flush=True)
+    
+        # get next target time
+        target_time = clock.tick(timestamps)
+        
+        # get next frames and timestamps
+        frames, timestamps = loader.get_frames(target_time)

@@ -39,10 +39,12 @@ class ManagerClock:
         
         ts - list of lists of timestamps returned by loader
         """
-        flat_ts = []
-        for item in ts:
-            flat_ts += item
-        max_ts = max(flat_ts)
+        # flat_ts = []
+        # for item in ts:
+        #     flat_ts += item
+        # max_ts = max(flat_ts)
+        
+        max_ts = max(ts)
         
         target_ts_1 = max_ts + 1.0/self.framerate
         
@@ -61,7 +63,7 @@ class MCLoader():
     directory - overall file buffer
     """
     
-    def __init__(self,directory,mapping_file,ctx,resize = (1920,1080), start_time = None):
+    def __init__(self,directory,mapping_file,cam_names,ctx,resize = (1920,1080), start_time = None):
         
         cp = configparser.ConfigParser()
         cp.read(mapping_file)
@@ -80,14 +82,14 @@ class MCLoader():
         cam_sequences = {}        
         for file in os.listdir(directory):
             sequence = os.path.join(directory,file)
-            cam_name = re.search("p\dc\d",sequence).group(0)
+            cam_name = re.search("P\d\dC\d\d",sequence).group(0)
             cam_sequences[cam_name] = sequence
         
         # device loader is a list of lists, with list i containing all loaders for device i (hopefully in order but not well enforced by dictionary so IDK)
         self.device_loaders = [[] for i in range(torch.cuda.device_count())]
-        for key in cam_sequences.keys():
-            dev_id = self.cam_devices[key]
-            sequence = cam_sequences[key]
+        for key in cam_names:
+            dev_id = self.cam_devices[key.lower()]
+            sequence = cam_sequences[key.upper()]
             loader = GPUBackendFrameGetter(sequence,dev_id,ctx,resize = resize,start_time = start_time)
             
             self.device_loaders[dev_id].append(loader)
@@ -98,25 +100,44 @@ class MCLoader():
         
         # each camera gets advanced until it is
         # within tolerance of the target time
-                
-        frames = [[] for i in range(torch.cuda.device_count())]
-        timestamps = [[] for i in range(torch.cuda.device_count())]
-        for dev_idx,this_dev_loaders in enumerate(self.device_loaders):
-            for loader in this_dev_loaders:
-                frame,ts = next(loader)
-                
-                # skip frames as necessary to sync times
-                while ts + tolerance < target_time:
+        
+        if target_time is None:
+            # accumulators
+            frames = [[] for i in range(torch.cuda.device_count())]
+            timestamps = []
+            for dev_idx,this_dev_loaders in enumerate(self.device_loaders):
+                for loader in this_dev_loaders:
                     frame,ts = next(loader)
-                
-                frames[dev_idx].append(frame)
-                timestamps[dev_idx].append(ts)
+                    frames[dev_idx].append(frame)
+                    timestamps.append(ts)
+        else:
+            # accumulators
+            frames = [[] for i in range(torch.cuda.device_count())]
+            timestamps = []
             
-        # stack each list
+            # advance each camera loader
+            for dev_idx,this_dev_loaders in enumerate(self.device_loaders):
+                for loader in this_dev_loaders:
+                    
+                    # require an advancement of at least one frame
+                    frame,ts = next(loader)
+                    
+                    # skip frames as necessary to sync times
+                    while ts + tolerance < target_time:
+                        frame,ts = next(loader)
+                    
+                    frames[dev_idx].append(frame)
+                    timestamps.append(ts)
+                
+        # stack each accumulator list
         out = []
         for lis in frames:
-            out.append(torch.stack(lis))
-        timestamps = [torch.tensor(item) for item in timestamps]
+            if len(lis) == 0: # occurs when no frames are mapped to a GPU
+                out.append(torch.empty(0))
+            else:
+                out.append(torch.stack(lis))
+
+        #timestamps = torch.tensor([torch.tensor(item) for item in timestamps],dtype = torch.double)
         
         return out,timestamps
     
@@ -130,7 +151,7 @@ class GPUBackendFrameGetter:
         
         self.directory = directory
         # instead of a single file, pass a directory, and a start time
-        self.worker = ctx.Process(target=load_queue_continuous_vpf, args=(self.queue,directory,device,buffer_size,resize))
+        self.worker = ctx.Process(target=load_queue_continuous_vpf, args=(self.queue,directory,device,buffer_size,resize,start_time))
         self.worker.start()   
             
 
@@ -162,7 +183,7 @@ class GPUBackendFrameGetter:
         
         
         frame = self.queue.get(timeout = 10)
-        ts = frame[1] / 10e9
+        ts = frame[1] / 10e8
         im = frame[0]
         
         return im,ts
@@ -179,19 +200,29 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time):
     gpuID = device
     device = torch.cuda.device("cuda:{}".format(gpuID))
     
-    last_file = None
+    last_file = ""
     
     while True:
         
         # sort directory files (by timestamp)
         files = os.listdir(directory)
+        
+        # filter out non-video_files and sort video files
+        files = list(filter(  (lambda f: True if ".mkv" in f else False) ,   files))
         files.sort()
         
         # select next file that comes sequentially after last_file
+        NEXTFILE = False
         for file in files:
             if file > last_file:
                 last_file = file
+                NEXTFILE = True
                 break
+            
+        if not NEXTFILE:
+            raise Exception("Reached last file for directory {}".format(directory))
+            
+        file = os.path.join(directory,file)
         
         # initialize Decoder object
         nvDec = nvc.PyNvDecoder(file, gpuID)
@@ -248,7 +279,8 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time):
             
                 # This is optional and depends on what you NN expects to take as input
                 # Normalize to range desired by NN. Originally it's 
-                surface_tensor = surface_tensor.type(dtype=torch.cuda.FloatTensor)
+                surface_tensor = surface_tensor.type(dtype=torch.cuda.FloatTensor)/255.0
+                
                 
                 # apply normalization
                 surface_tensor = F.normalize(surface_tensor,mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])

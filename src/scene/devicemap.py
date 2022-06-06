@@ -48,6 +48,10 @@ class DeviceMap():
         cam_names = []
         extents = []
         [(cam_names.append(key),extents.append(self.cam_extents[key])) for key in self.cam_extents.keys()]
+        
+        # DEREK TODO does this help
+        #cam_names.sort()
+        
         self.cam_names = cam_names
         self.cam_extents_dict = self.cam_extents.copy()
         self.cam_extents = torch.tensor(extents)
@@ -94,9 +98,17 @@ class DeviceMap():
         cp.read(extents_file)
         extents = dict(cp["DEFAULT"])
        
+        removals = []
         for key in extents.keys():
-            parsed_val = [int(item) for item in extents[key][1:-1].split(",")]
-            extents[key] = parsed_val
+            try:
+                parsed_val = [int(item) for item in extents[key][1:-1].split(",")]
+                extents[key] = parsed_val
+
+            except ValueError: # adding a $ to the end of each camera to be excluded will trigger this error and thus the camera will not be included
+                removals.append(key)
+                
+        for rem in removals:
+            extents.pop(rem)
     
         self.cam_extents = extents
                                 
@@ -195,9 +207,18 @@ class HeuristicDeviceMap(DeviceMap):
                     "c3":1000,
                     "c4":1000,
                     "c5":100,
-                    "c6":1}
-
-        self.priority = torch.tensor([priority_dict[re.search("c\d",cam).group(0)] for cam in self.cam_names])
+                    "c6":1,
+                    
+                    "c01":1,
+                    "c02":100,
+                    "c03":1000,
+                    "c04":1000,
+                    "c05":100,
+                    "c06":1}
+        try:
+            self.priority = torch.tensor([priority_dict[re.search("c\d",cam).group(0)] for cam in self.cam_names])
+        except KeyError:
+            self.priority = torch.tensor([priority_dict[re.search("c\d\d",cam).group(0)] for cam in self.cam_names])
     
     def map_cameras(self,tstate,ts):
         """

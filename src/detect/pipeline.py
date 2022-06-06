@@ -65,6 +65,11 @@ class DetectPipeline():
         
         [ids,priors,frame_idx,cam_names] = priors
         
+        # no frames assigned to this GPU
+        if frames.shape[0] == 0:
+            del frames
+            return torch.empty([0,6]) , torch.empty(0), torch.empty(0), [], []
+        
         prepped_frames = self.prep_frames(frames,priors = priors)
         detection_result = self.detect(prepped_frames)
         detections,confs,classes,detection_cam_names  = self.post_detect(detection_result,priors = priors)

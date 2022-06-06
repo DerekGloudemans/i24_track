@@ -33,7 +33,7 @@ class DummyNoiseLoader():
 
         self.dummy_time = 0         
             
-    def get_frames(self,target):
+    def get_frames(self,target_time):
         
         frames = [[] for i in range(torch.cuda.device_count())]
         for cam_id in self.cam_devices:
