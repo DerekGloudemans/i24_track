@@ -871,7 +871,22 @@ class HomographyWrapper():
         self.hg2 = get_homographies(save_file = hg2 ,direction = "WB")
         
         self.colors = np.random.randint(0,255,[1000,3]) 
-        
+      
+    # capital catcher for homography
+    def safe_name(func):
+        def new_func(*args, **kwargs):
+            try:
+                return func(*args, **kwargs)
+            except KeyError:
+                #print(args,kwargs)
+                if type(kwargs["name"]) == list:
+                    kwargs["name"] = [item.upper() for item in kwargs["name"]]
+                elif type(kwargs["name"]) == str:
+                    kwargs["name"] = kwargs["name"].upper()
+                return func(*args, **kwargs)
+        return new_func
+
+    
     ## Pass-through functions 
     def guess_heights(self,classes):
         return self.hg1.guess_heights(classes)
@@ -883,6 +898,7 @@ class HomographyWrapper():
         return self.hg1.height_from_template(template_boxes,template_space_heights,boxes)
 
     ## Wrapper functions
+    @safe_name
     def im_to_space(self,points, name = None,heights = None):
         boxes  = self.hg1.im_to_space(points,name = name, heights = heights)
         boxes2 = self.hg2.im_to_space(points,name = name, heights = heights)
@@ -891,7 +907,7 @@ class HomographyWrapper():
         ind = torch.where(boxes[:,0,1] > 60)[0] 
         boxes[ind,:,:] = boxes2[ind,:,:]
         return boxes
-    
+    @safe_name
     def space_to_im(self,points,name = None):
         boxes  = self.hg1.space_to_im(points,name = name)
         boxes2 = self.hg2.space_to_im(points,name = name)
@@ -900,11 +916,11 @@ class HomographyWrapper():
         ind = torch.where(points[:,0,1] > 60)[0]
         boxes[ind,:] = boxes2[ind,:]        
         return boxes
-    
+    @safe_name
     def _i2st(self,points,heights,name = None):
             return self.space_to_state(self.im_to_space(points,name = name, heights = heights))
         
-
+    @safe_name
     def im_to_state(self,points,classes = None,name = None,heights = None):
         if heights is None:
             if classes is not None:
@@ -924,10 +940,11 @@ class HomographyWrapper():
         return boxes
     
     
-
+    @safe_name
     def state_to_im(self,points,name = None):
         return self.space_to_im(self.state_to_space(points),name = name)
     
+    @safe_name
     def plot_state_boxes(self,im,boxes,name = None, color = (255,255,255),secondary_color = None,labels = None,thickness = 1):
         """
         im - cv2 image

@@ -117,7 +117,7 @@ if __name__ == "__main__":
     print("Frame:    Since Start:  Frame BPS:    Sync Timestamp:     Max ts Deviation:     Active Objects:")
     while True:
         
-        if False: # shortout actual processing
+        if True: # shortout actual processing
 
             # select pipeline for this frame
             pipeline_idx = 0
