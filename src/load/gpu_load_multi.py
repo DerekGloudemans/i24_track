@@ -222,6 +222,8 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time):
         if not NEXTFILE:
             raise Exception("Reached last file for directory {}".format(directory))
             
+            # Derek TODO log no file message
+            
         file = os.path.join(directory,file)
         
         # initialize Decoder object

@@ -9,7 +9,12 @@ import sys, os
 import csv
 import _pickle as pickle
 
-def get_homographies(save_file = "i24_all_homography.cpkl", directory = "/home/derek/Documents/derek/i24-dataset-gen/DATA/tform2", direction = "EB",fit_Z = True):
+
+def get_homographies(save_file = "i24_all_homography.cpkl", 
+                     tf_directory = "/home/derek/Documents/i24/i24_track/data/homography/transform_points_1",
+                     vp_directory = "/home/derek/Documents/i24/i24_track/data/homography/vp/vp1",
+                     direction = "EB",
+                     semi_height = 13.5):
     """
     Returns a Homography object with pre-loaded correspondences
     save - (None or str) path to save_file - if file exists, it will be opened and returned
@@ -27,50 +32,77 @@ def get_homographies(save_file = "i24_all_homography.cpkl", directory = "/home/d
         
         
         hg = Homography()
-        for camera_name in ["p1c1","p1c2","p1c3","p1c4","p1c5","p1c6","p2c1","p2c2","p2c3","p2c4","p2c5","p2c6","p3c1","p3c2","p3c3","p3c4","p3c5","p3c6"]:
-            
-            print("Adding camera {} to homography".format(camera_name))
-            
-            data_file = "/home/derek/Data/dataset_alpha/manual_correction/rectified_{}_0_track_outputs_3D.csv".format(camera_name)
-            vp_file = "/home/derek/Documents/derek/i24-dataset-gen/DATA/vp/{}_axes.csv".format(camera_name)
-            
-            point_file = os.path.join(directory,"{}_{}_im_lmcs_transform_points.csv".format(camera_name,direction))
-            if not os.path.exists(point_file):
-                point_file = os.path.join(directory,"{}_im_lmcs_transform_points.csv".format(camera_name))
-                if not os.path.exists(point_file):
-                    other_direction = "EB" if direction == "WB" else "WB"
-                    point_file = os.path.join(directory,"{}_{}_im_lmcs_transform_points.csv".format(camera_name,other_direction))
-
-            # load homography
-            hg.add_i24_camera(point_file,vp_file,camera_name)
-
-            if fit_Z:
-                try:
-                    labels,data = load_i24_csv(data_file)
-                    
-                    # ensure there are some boxes on which to fit
-                    i = 0
-                    frame_data = data[i]
-                    while len(frame_data) == 0:
-                        i += 1
-                        frame_data = data[i]
-                        
-                    # convert labels from first frame into tensor form
-                    boxes = []
-                    classes = []
-                    for item in frame_data:
-                        if len(item[11]) > 0:
-                            boxes.append(np.array(item[11:27]).astype(float))
-                            classes.append(item[3])
-                    boxes = torch.from_numpy(np.stack(boxes))
-                    boxes = torch.stack((boxes[:,::2],boxes[:,1::2]),dim = -1)
+        for c in [1,2,3,4,5,6]:
+            for p in [46,47,48]:
+                camera_name = "p{}c{}".format(p,c)
+                print("Adding camera {} to homography".format(camera_name))
                 
-                    # scale Z axis
+                # get tf points
+                point_file = os.path.join(tf_directory,"{}_{}_im_lmcs_transform_points.csv".format(camera_name,direction))
+                # use opposite side of roadway if this side is not labeled
+                if not os.path.exists(point_file):
+                    point_file = os.path.join(tf_directory,"{}_im_lmcs_transform_points.csv".format(camera_name))
+                    if not os.path.exists(point_file):
+                        other_direction = "EB" if direction == "WB" else "WB"
+                        point_file = os.path.join(tf_directory,"{}_{}_im_lmcs_transform_points.csv".format(camera_name,other_direction))
+    
+                # get Z vanishing point file
+                camera_name = "p{}c{}".format(str(p).zfill(2),str(c).zfill(2)).upper()
+                vp_file = "{}/{}_{}_axes.csv".format(vp_directory,camera_name,direction)
+
+                # load homography
+                hg.add_i24_camera(point_file,vp_file,camera_name)
+    
+                # # scale Z assuming all z-axis lines were drawn on semis
+                lines3 = []
+                with open(vp_file,"r") as f:
+                    read = csv.reader(f)
+                    for item in read:
+                        if len(item) < 2:
+                            continue
+                        elif item[4] == '2':
+                            lines3.append(np.array(item).astype(float))
+                
+                # reshape vp axis lines into expected "box" format of size [n,1,3]
+                lines = torch.tensor(np.array(lines3))[:,:4]
+                new_lines = []
+                for line in lines:
+                    new_line = line.unsqueeze(0).repeat(4,1)
+                    new_line = torch.cat((new_line[:,0:2],new_line[:,2:4]),dim = 0)
+                    new_lines.append(new_line)
+                
+                # use to fit Z scaling
+                new_lines = torch.stack(new_lines)
+                heights = torch.ones(new_lines.shape[0]) * semi_height
+                hg.scale_Z(new_lines,heights,name = camera_name,)
+
+                # if fit_Z:
+                #     try:
+                #         labels,data = load_i24_csv(data_file)
+                        
+                #         # ensure there are some boxes on which to fit
+                #         i = 0
+                #         frame_data = data[i]
+                #         while len(frame_data) == 0:
+                #             i += 1
+                #             frame_data = data[i]
+                            
+                #         # convert labels from first frame into tensor form
+                #         boxes = []
+                #         classes = []
+                #         for item in frame_data:
+                #             if len(item[11]) > 0:
+                #                 boxes.append(np.array(item[11:27]).astype(float))
+                #                 classes.append(item[3])
+                #         boxes = torch.from_numpy(np.stack(boxes))
+                #         boxes = torch.stack((boxes[:,::2],boxes[:,1::2]),dim = -1)
                     
-                    heights = hg.guess_heights(classes)
-                    hg.scale_Z(boxes,heights,name = camera_name)
-                except:
-                    pass
+                #         # scale Z axis
+                        
+                #         heights = hg.guess_heights(classes)
+                #         hg.scale_Z(boxes,heights,name = camera_name)
+                #     except:
+                #         pass
         
         with open(save_file,"wb") as f:
             pickle.dump(hg,f)
@@ -245,6 +277,8 @@ class Homography():
             
             for line in lines[1:-4]:
                 line = line.rstrip("\n").split(",")
+                if len(line) != 4:
+                    continue
                 corr_pts.append ([float(line[0]),float(line[1])])
                 space_pts.append([float(line[2]),float(line[3])])
         
@@ -255,6 +289,8 @@ class Homography():
         with open(vp_path,"r") as f:
             read = csv.reader(f)
             for item in read:
+                if len(item) < 2:
+                    continue
                 if item[4] == '0':
                     lines1.append(np.array(item).astype(float))
                 elif item[4] == '1':
@@ -263,8 +299,10 @@ class Homography():
                     lines3.append(np.array(item).astype(float))
         
         # get all axis labels for a particular axis orientation
-        vp1 = find_vanishing_point(lines1)
-        vp2 = find_vanishing_point(lines2)
+        #vp1 = find_vanishing_point(lines1) 
+        vp1 = (0,0)
+        vp2 = (0,0)
+        #vp2 = find_vanishing_point(lines2)
         vp3 = find_vanishing_point(lines3)
         vps = [vp1,vp2,vp3]
         
@@ -825,8 +863,8 @@ class HomographyWrapper():
         """
          
         if hg1 is None and hg2 is None:
-            hg1 = "EB_homography.cpkl"
-            hg2 = "WB_homography.cpkl"
+            hg1 = "EB_homography_46.cpkl"
+            hg2 = "WB_homography_46.cpkl"
         
 
         self.hg1 = get_homographies(save_file = hg1 ,direction = "EB")
