@@ -30,44 +30,71 @@ if __name__ == "__main__":
 
 
 
+    #%% Old run settings and setup
+    if False: 
+        os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean"
+        os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
+        run_config = "execute.config"       
+        in_dir = "/home/derek/Data/dataset_beta/sequence_1"
+        
+        
+        # load parameters
+        params = parse_cfg("TRACK_CONFIG_SECTION",
+                           cfg_name=run_config, SCHEMA=False)
+        
+        # verify config notion of GPUs matches torch.cuda notion of available devices
+        # get available devices
+        
+        # TODO fix this once you redo configparse
+        params.cuda_devices = [int(i) for i in range(int(params.cuda_devices))]
+        assert max(params.cuda_devices) < torch.cuda.device_count()
+        
+        # intialize DeviceMap
+        dmap = get_DeviceMap(params.device_map)
+
+        from src.load.gpu_load             import MCLoader
+        loader = MCLoader(in_dir, dmap.camera_mapping_file, ctx)
 
 
-
-
+    
     #%% run settings
-    os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_2"
-    os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
-    in_dir = "/home/derek/Data/cv/video/06-02-2022/batch4"
-    run_config = "execute.config"
+    else:
+        os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_2"
+        os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
+        in_dir = "/home/derek/Data/cv/video/06-02-2022/batch4"
+        run_config = "execute.config"
+        
+        mask = ["p46c01","p46c02", "p46c03", "p46c04", "p46c05","p46c06"]
+        mask = None
+    
+        #%% Setup
+        # initialize multi-camera loader
+        #loader = DummyNoiseLoader(dmap.camera_mapping_file)
     
     
-    #%% Setup
-    # initialize multi-camera loader
-    #loader = DummyNoiseLoader(dmap.camera_mapping_file)
-
-
-    #in_dir = "/home/derek/Data/dataset_beta/sequence_1"
-    #loader = MCLoader(in_dir, dmap.camera_mapping_file, ctx)
+        #in_dir = "/home/derek/Data/dataset_beta/sequence_1"
+        #loader = MCLoader(in_dir, dmap.camera_mapping_file, ctx)
+        
+        
+        # load parameters
+        params = parse_cfg("TRACK_CONFIG_SECTION",
+                           cfg_name=run_config, SCHEMA=False)
     
+        # verify config notion of GPUs matches torch.cuda notion of available devices
+        # get available devices
     
-    # load parameters
-    params = parse_cfg("TRACK_CONFIG_SECTION",
-                       cfg_name=run_config, SCHEMA=False)
-
-    # verify config notion of GPUs matches torch.cuda notion of available devices
-    # get available devices
-
-    # TODO fix this once you redo configparse
-    params.cuda_devices = [int(i) for i in range(int(params.cuda_devices))]
-    assert max(params.cuda_devices) < torch.cuda.device_count()
-
-    # intialize DeviceMap
-    dmap = get_DeviceMap(params.device_map)
+        # TODO fix this once you redo configparse
+        params.cuda_devices = [int(i) for i in range(int(params.cuda_devices))]
+        assert max(params.cuda_devices) < torch.cuda.device_count()
+    
+        # intialize DeviceMap
+        dmap = get_DeviceMap(params.device_map)
+    
+        loader = MCLoader(in_dir, dmap.camera_mapping_file,dmap.cam_names, ctx)
 
 
-
-    loader = MCLoader(in_dir, dmap.camera_mapping_file,dmap.cam_names, ctx)
-
+    #%% more init stuff 
+    
     # initialize Homography object
     hg = HomographyWrapper(hg1 = params.eb_homography_file,hg2 = params.wb_homography_file)
 
@@ -157,6 +184,7 @@ if __name__ == "__main__":
             detection_times = torch.tensor(
                 [timestamps[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
             
+            detections_orig = detections.clone()
             if True and len(detections) > 0:
                 # do nms across all device batches to remove dups
                 space_new = hg.state_to_space(detections)
@@ -173,18 +201,18 @@ if __name__ == "__main__":
             terminated_objects = tracker.postprocess(
                 detections, detection_times, classes, confs, associations, tstate, hg = hg)
 
-            dbw.insert(terminated_objects)
+            if params.write_db:
+                dbw.insert(terminated_objects)
             #print("Active Trajectories: {}  Terminated Trajectories: {}   Documents in database: {}".format(len(tstate),len(terminated_objects),len(dbw)))
 
         frames_processed += 1
 
         # optionally, plot outputs
         if True:
-            #mask = ["p1c1","p1c2", "p1c3", "p1c4", "p1c5","p1c6"]
-            mask = None
+            
             #mask = ["p48c01","p48c02","p48c03","p48c04","p48c05","p48c06"]
             plot_scene(tstate, frames, timestamps, dmap.gpu_cam_names,
-                 hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed)
+                 hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed,detections = detections_orig)
 
         
         # text readout update

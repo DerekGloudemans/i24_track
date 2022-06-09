@@ -5,6 +5,7 @@ import cv2
 
 
 colors = np.random.randint(0,255,[1000,3])
+colors[:,2] = 0.2
 
 
 # def apply_config(obj,cfg,case = "DEFAULT"):
@@ -18,7 +19,7 @@ colors = np.random.randint(0,255,[1000,3])
 # 	[setattr(obj,key,config.getany(case,key)) for key in params.keys()]
 
 
-def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None, fr_num = 0):
+def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None, fr_num = 0,detections = None):
     """
     Plots the set of active cameras, or a subset thereof
     tstate - TrackState object
@@ -70,6 +71,7 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
         ids, boxes = tstate(ts[f_idx],with_direction=True)
         classes = torch.tensor([class_by_id[id.item()] for id in ids])
         
+        
         if extents is not None and len(boxes) > 0:
             xmin, xmax, _ = extents[cam_names[f_idx]]
 
@@ -80,6 +82,7 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
             ids = ids[keep_obj]
             classes = classes[keep_obj]
             classes = [hg.hg1.class_dict[cls.item()] for cls in classes]
+                            
             
         # convert frame into cv2 image
         fr = (denorm(frames[f_idx]).numpy().transpose(1, 2, 0)*255)[:,:,::-1]
@@ -96,6 +99,15 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
             
             fr = hg.plot_state_boxes(
                 fr.copy(), boxes, name=cam_names[f_idx], labels=labels,thickness = 3, color = color_slice)
+
+        # plot original detections
+        if detections is not None:
+            keep_det= torch.mul(torch.where(detections[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
+                detections[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1)
+            detections_selected = detections[keep_det,:]
+            
+            fr = hg.plot_state_boxes(
+                fr.copy(), detections_selected, name=cam_names[f_idx], labels=None,thickness = 3, color = (0,0,255))
 
         # plot timestamp
         fr = cv2.putText(fr.copy(), "Timestamp: {:.3f}s".format(ts[f_idx]), (10,70), cv2.FONT_HERSHEY_PLAIN,2,(0,0,0),3)

@@ -89,7 +89,12 @@ class MCLoader():
         self.device_loaders = [[] for i in range(torch.cuda.device_count())]
         for key in cam_names:
             dev_id = self.cam_devices[key.lower()]
-            sequence = cam_sequences[key.upper()]
+            
+            try:
+                sequence = cam_sequences[key]
+            except:
+                sequence = cam_sequences[key.upper()]
+            
             loader = GPUBackendFrameGetter(sequence,dev_id,ctx,resize = resize,start_time = start_time)
             
             self.device_loaders[dev_id].append(loader)
