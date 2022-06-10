@@ -1,4 +1,5 @@
 from i24_configparse import parse_cfg
+from i24_logger.log_writer import catch_critical,logger
 import configparser
 import torch
 import re
@@ -36,6 +37,7 @@ class DeviceMap():
             can then be passed to the DetectorBank to split across devices and perform any cropping etc.
     """
     
+    @catch_critical()
     def __init__(self):
         
         # load config
@@ -85,7 +87,7 @@ class DeviceMap():
         
                     
                 
-    
+    @catch_critical()
     def _parse_cameras(self,extents_file):
         """
         This function is likely to change in future versions. For now, config file is expected to 
@@ -111,7 +113,8 @@ class DeviceMap():
             extents.pop(rem)
     
         self.cam_extents = extents
-                                
+      
+    @catch_critical()                          
     def _parse_device_mapping(self,mapping_file):
         """
         This function is likely to change in future versions. For now, config file is expected to 
@@ -143,6 +146,7 @@ class DeviceMap():
         gpu_map = torch.tensor([self.cam_devices[camera] for camera in cam_map])
         return gpu_map
     
+    @catch_critical()
     def __call__(self,tstate,ts):
         cam_map,obj_times = self.map_cameras(tstate,ts)
         gpu_map = self.map_devices(cam_map)
@@ -151,6 +155,7 @@ class DeviceMap():
         
         return cam_map,gpu_map,obj_times
     
+    @catch_critical()
     def route_objects(self,obj_ids,priors,device_idxs,camera_idxs,run_device_ids = None):
         """
         Batches input objects onto specified devices
@@ -196,7 +201,7 @@ class DeviceMap():
         return prior_stack
     
 class HeuristicDeviceMap(DeviceMap):
-    
+    @catch_critical()
     def __init__(self):
         super(HeuristicDeviceMap, self).__init__()
         
@@ -219,7 +224,8 @@ class HeuristicDeviceMap(DeviceMap):
             self.priority = torch.tensor([priority_dict[re.search("c\d",cam).group(0)] for cam in self.cam_names])
         except KeyError:
             self.priority = torch.tensor([priority_dict[re.search("c\d\d",cam).group(0)] for cam in self.cam_names])
-    
+            
+    @catch_critical()
     def map_cameras(self,tstate,ts):
         """
         MAPPING:

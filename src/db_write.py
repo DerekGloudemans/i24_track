@@ -1,5 +1,7 @@
 from i24_database_api.db_writer import DBWriter
 from i24_configparse import parse_cfg
+from i24_logger.log_writer import catch_critical,logger
+
 import os
 import numpy as np
 
@@ -8,6 +10,7 @@ os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
 
 class WriteWrapper():
     
+    @catch_critical()
     def __init__(self,server_id = -1):
     
         
@@ -36,13 +39,14 @@ class WriteWrapper():
     
     
         col = self.dbw.collection
-        
+    
+    @catch_critical()
     def __len__(self):
         return self.dbw.collection.count_documents({})
     
     
-    
-    def insert(self,trajectories):
+    @catch_critical()
+    def insert(self,trajectories,time_offset = 0):
         """
         Converts trajectories as dequeued from TrackState into document form and inserts with dbw
         trajectories - output from TrackState.remove()
@@ -54,7 +58,7 @@ class WriteWrapper():
             cls_data = trajectory[1]
             
             cls = int(np.argmax(cls_data))
-            timestamps = [item[0] for item in history]
+            timestamps = [item[0] + time_offset for item in history]
             x = [item[1][0].item() for item in history]
             y = [item[1][1].item() for item in history]
             l = [item[1][2].item() for item in history]

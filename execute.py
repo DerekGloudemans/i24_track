@@ -1,5 +1,5 @@
 import torch.multiprocessing as mp
-
+import socket
 
 if __name__ == "__main__":
 
@@ -22,13 +22,11 @@ if __name__ == "__main__":
     from src.detect.devicebank         import DeviceBank
     from src.load.gpu_load_multi       import MCLoader, ManagerClock
     from src.db_write                  import WriteWrapper
+    from i24_logger.log_writer         import catch_critical,logger,connect_automatically
 
     #from src.load.cpu_load             import DummyNoiseLoader #,MCLoader
     #from src.load.gpu_load             import MCLoader
     
-
-
-
 
     #%% Old run settings and setup
     if False: 
@@ -44,6 +42,24 @@ if __name__ == "__main__":
         
         # verify config notion of GPUs matches torch.cuda notion of available devices
         # get available devices
+        
+        # initialize logger
+        try:
+            log_params = {
+                        "log_name":"Tracking Session: {}".format(np.random.randint(0,1000000)),
+                        "processing_environment":os.environ["TRACK_CONFIG_SECTION"],
+                        "logstash_address":(params.log_host_ip,params.log_host_port),
+                        "connect_logstash": (True if "logstash" in params.log_mode else False),
+                        "connect_syslog":(True if "syslog" in params.log_mode else False),
+                        "connect_file": (True if "file" in params.log_mode else False),
+                        "connect_console":(True if "sysout" in params.log_mode else False),
+                        "console_log_level":params.log_level
+                        }
+            
+            logger = connect_automatically(user_settings = log_params)
+            logger.debug("Logger initialized with custom log settings",extra = log_params)
+        except:
+            logger.debug("Logger initialized with default parameters")
         
         # TODO fix this once you redo configparse
         params.cuda_devices = [int(i) for i in range(int(params.cuda_devices))]
@@ -79,6 +95,25 @@ if __name__ == "__main__":
         # load parameters
         params = parse_cfg("TRACK_CONFIG_SECTION",
                            cfg_name=run_config, SCHEMA=False)
+        
+        # initialize logger
+        try:
+            log_params = {
+                        "log_name":"Tracking Session: {}".format(np.random.randint(0,1000000)),
+                        "processing_environment":os.environ["TRACK_CONFIG_SECTION"],
+                        "logstash_address":(params.log_host_ip,params.log_host_port),
+                        "connect_logstash": (True if "logstash" in params.log_mode else False),
+                        "connect_syslog":(True if "syslog" in params.log_mode else False),
+                        "connect_file": (True if "file" in params.log_mode else False),
+                        "connect_console":(True if "sysout" in params.log_mode else False),
+                        "console_log_level":params.log_level
+                        }
+            
+            logger = connect_automatically(user_settings = log_params)
+            logger.debug("Logger initialized with custom log settings",extra = log_params)
+        except:
+            logger.debug("Logger initialized with default parameters")
+    
     
         # verify config notion of GPUs matches torch.cuda notion of available devices
         # get available devices
@@ -94,6 +129,10 @@ if __name__ == "__main__":
 
 
     #%% more init stuff 
+    
+    
+    
+    
     
     # initialize Homography object
     hg = HomographyWrapper(hg1 = params.eb_homography_file,hg2 = params.wb_homography_file)
@@ -127,7 +166,7 @@ if __name__ == "__main__":
     
     # initialize processing sync clock
     start_ts = max(timestamps)
-    desired_processing_speed = 0    # for now, no constraint
+    desired_processing_speed = 0.1    # for now, no constraint
     nom_framerate = 30
     clock  = ManagerClock(start_ts,desired_processing_speed, nom_framerate)
     target_time = start_ts
@@ -139,13 +178,18 @@ if __name__ == "__main__":
 
     frames_processed = 0
 
-    
+    # plot first frame
     if params.plot:
         plot_scene(tstate, frames, ts_trunc, dmap.gpu_cam_names,
              hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed,detections = None)
     
+    
+    
+    
     #%% Main Processing Loop
     start_time = time.time()
+    
+    logger.debug("Initialization Complete. Starting tracking at {}s".format(start_time))
     
     # readout headers
     print("\n\nFrame:    Since Start:  Frame BPS:    Sync Timestamp:     Max ts Deviation:     Active Objects:")
@@ -209,7 +253,7 @@ if __name__ == "__main__":
                 detections, detection_times, classes, confs, associations, tstate, hg = hg)
 
             if params.write_db:
-                dbw.insert(terminated_objects)
+                dbw.insert(terminated_objects,time_offset = start_ts)
             #print("Active Trajectories: {}  Terminated Trajectories: {}   Documents in database: {}".format(len(tstate),len(terminated_objects),len(dbw)))
 
         frames_processed += 1
@@ -232,3 +276,4 @@ if __name__ == "__main__":
         # get next frames and timestamps
         frames, timestamps = loader.get_frames(target_time)
         ts_trunc = [item - start_ts for item in timestamps]
+

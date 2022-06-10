@@ -16,6 +16,7 @@ from PIL import Image
 
 from torchvision.transforms import functional as F
 
+from i24_logger.log_writer import catch_critical
 
 class ManagerClock:
     def __init__(self,start_ts,desired_processing_speed,framerate):
@@ -63,6 +64,7 @@ class MCLoader():
     directory - overall file buffer
     """
     
+    @catch_critical()        
     def __init__(self,directory,mapping_file,cam_names,ctx,resize = (1920,1080), start_time = None):
         
         cp = configparser.ConfigParser()
@@ -100,7 +102,7 @@ class MCLoader():
             self.device_loaders[dev_id].append(loader)
         
         
-            
+    @catch_critical()     
     def get_frames(self,target_time = None, tolerance = 1/60):
         
         # each camera gets advanced until it is
@@ -198,8 +200,6 @@ class GPUBackendFrameGetter:
         #     self.worker.join()
         #     return None
         
-        
-
 def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time):
     resize = (resize[1],resize[0])
     gpuID = device
