@@ -26,13 +26,13 @@ if __name__ == "__main__":
 
     #from src.load.cpu_load             import DummyNoiseLoader #,MCLoader
     #from src.load.gpu_load             import MCLoader
-    
+    run_config = "execute.config"       
+
 
     #%% Old run settings and setup
     if False: 
-        os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean"
-        os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
-        run_config = "execute.config"       
+        #os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean"
+        #os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
         in_dir = "/home/derek/Data/dataset_beta/sequence_1"
         
         
@@ -75,10 +75,8 @@ if __name__ == "__main__":
     
     #%% run settings
     else:
-        os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_2"
-        os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
-        in_dir = "/home/derek/Data/cv/video/06-02-2022/batch4"
-        run_config = "execute.config"
+        #os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_2"
+        #os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
         
         mask = ["p46c01","p46c02", "p46c03", "p46c04", "p46c05","p46c06"]
         mask = None
@@ -95,6 +93,8 @@ if __name__ == "__main__":
         # load parameters
         params = parse_cfg("TRACK_CONFIG_SECTION",
                            cfg_name=run_config, SCHEMA=False)
+        
+        in_dir = params.input_directory
         
         # initialize logger
         try:
@@ -166,9 +166,8 @@ if __name__ == "__main__":
     
     # initialize processing sync clock
     start_ts = max(timestamps)
-    desired_processing_speed = 0.1    # for now, no constraint
-    nom_framerate = 30
-    clock  = ManagerClock(start_ts,desired_processing_speed, nom_framerate)
+    nom_framerate = params.nominal_framerate 
+    clock  = ManagerClock(start_ts,params.desired_processing_speed, nom_framerate)
     target_time = start_ts
 
     # initial sync-up of all cameras
@@ -177,7 +176,8 @@ if __name__ == "__main__":
     ts_trunc = [item - start_ts for item in timestamps]
 
     frames_processed = 0
-
+    term_objects = 0
+    
     # plot first frame
     if params.plot:
         plot_scene(tstate, frames, ts_trunc, dmap.gpu_cam_names,
@@ -251,6 +251,7 @@ if __name__ == "__main__":
             
             terminated_objects = tracker.postprocess(
                 detections, detection_times, classes, confs, associations, tstate, hg = hg)
+            term_objects += len(terminated_objects)
 
             if params.write_db:
                 dbw.insert(terminated_objects,time_offset = start_ts)
@@ -277,3 +278,14 @@ if __name__ == "__main__":
         frames, timestamps = loader.get_frames(target_time)
         ts_trunc = [item - start_ts for item in timestamps]
 
+        if frames_processed % 100 == 0:
+            metrics = {
+                "frame bps": fps,
+                "frame batches processed":frames_processed,
+                "run time":time.time() - start_time,
+                "scene time processed":target_time - start_ts,
+                "active objects":len(tstate),
+                "total terminated objects":term_objects,
+                "avg skipped frames per processed frame": nom_framerate*(target_time - start_ts)/frames_processed -1
+                }
+            logger.info("Tracking Status Log",extra = metrics)

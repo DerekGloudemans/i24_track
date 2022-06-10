@@ -2,11 +2,6 @@ import torch
 from i24_configparse import parse_cfg
 from ..util.bbox import im_nms,space_nms
 
-
-import os
-os.environ["user_config_directory"] = "/home/worklab/Documents/i24/i24_track/config"
-
-
 # imports for specific detectors
 from .retinanet_3D.retinanet.model import resnet50 as Retinanet3D
 

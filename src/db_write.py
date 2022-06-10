@@ -5,8 +5,6 @@ from i24_logger.log_writer import catch_critical,logger
 import os
 import numpy as np
 
-os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean"
-os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
 
 class WriteWrapper():
     
