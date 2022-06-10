@@ -135,21 +135,28 @@ if __name__ == "__main__":
     # initial sync-up of all cameras
     # TODO - note this means we always skip at least one frame at the beginning of execution
     frames,timestamps = loader.get_frames(target_time)
+    ts_trunc = [item - start_ts for item in timestamps]
+
+    frames_processed = 0
+
+    
+    if params.plot:
+        plot_scene(tstate, frames, ts_trunc, dmap.gpu_cam_names,
+             hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed,detections = None)
     
     #%% Main Processing Loop
-    frames_processed = 0
     start_time = time.time()
     
     # readout headers
-    print("Frame:    Since Start:  Frame BPS:    Sync Timestamp:     Max ts Deviation:     Active Objects:")
+    print("\n\nFrame:    Since Start:  Frame BPS:    Sync Timestamp:     Max ts Deviation:     Active Objects:")
     while True:
         
         if True: # shortout actual processing
-
+            
             # select pipeline for this frame
             pipeline_idx = 0
     
-            camera_idxs, device_idxs, obj_times = dmap(tstate, timestamps)
+            camera_idxs, device_idxs, obj_times = dmap(tstate, ts_trunc)
             obj_ids, priors, selected_obj_idxs = tracker.preprocess(
                 tstate, obj_times)
     
@@ -182,7 +189,7 @@ if __name__ == "__main__":
             
             # THIS MAY BE SLOW SINCE ITS DOUBLE INDEXING
             detection_times = torch.tensor(
-                [timestamps[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
+                [ts_trunc[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
             
             detections_orig = detections.clone()
             if True and len(detections) > 0:
@@ -208,11 +215,9 @@ if __name__ == "__main__":
         frames_processed += 1
 
         # optionally, plot outputs
-        if True:
-            
-            #mask = ["p48c01","p48c02","p48c03","p48c04","p48c05","p48c06"]
-            plot_scene(tstate, frames, timestamps, dmap.gpu_cam_names,
-                 hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed,detections = detections_orig)
+        if params.plot:
+            plot_scene(tstate, frames, ts_trunc, dmap.gpu_cam_names,
+                 hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed,detections = detections)
 
         
         # text readout update
@@ -226,3 +231,4 @@ if __name__ == "__main__":
         
         # get next frames and timestamps
         frames, timestamps = loader.get_frames(target_time)
+        ts_trunc = [item - start_ts for item in timestamps]

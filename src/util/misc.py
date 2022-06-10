@@ -5,7 +5,7 @@ import cv2
 
 
 colors = np.random.randint(0,255,[1000,3])
-colors[:,2] = 0.2
+colors[:,0] = 0.2
 
 
 # def apply_config(obj,cfg,case = "DEFAULT"):
@@ -107,7 +107,7 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
             detections_selected = detections[keep_det,:]
             
             fr = hg.plot_state_boxes(
-                fr.copy(), detections_selected, name=cam_names[f_idx], labels=None,thickness = 3, color = (0,0,255))
+                fr.copy(), detections_selected, name=cam_names[f_idx], labels=None,thickness = 1, color = (255,0,0))
 
         # plot timestamp
         fr = cv2.putText(fr.copy(), "Timestamp: {:.3f}s".format(ts[f_idx]), (10,70), cv2.FONT_HERSHEY_PLAIN,2,(0,0,0),3)

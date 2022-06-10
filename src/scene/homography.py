@@ -14,7 +14,8 @@ def get_homographies(save_file = "i24_all_homography.cpkl",
                      tf_directory = "/home/derek/Documents/i24/i24_track/data/homography/transform_points_1",
                      vp_directory = "/home/derek/Documents/i24/i24_track/data/homography/vp/vp1",
                      direction = "EB",
-                     semi_height = 13.5):
+                     semi_height = 13.5,
+                     SHOW = False):
     """
     Returns a Homography object with pre-loaded correspondences
     save - (None or str) path to save_file - if file exists, it will be opened and returned
@@ -64,18 +65,64 @@ def get_homographies(save_file = "i24_all_homography.cpkl",
                             lines3.append(np.array(item).astype(float))
                 
                 # reshape vp axis lines into expected "box" format of size [n,1,3]
+                
+                
+                # TODO - we need to m
                 lines = torch.tensor(np.array(lines3))[:,:4]
                 new_lines = []
                 for line in lines:
+                    
+                    # make sure that the top point is always the one with the lesser pixel row
+                    # remember, these are in x,y form and need to be converted to row,column form
+                    #line = line[[1,0,3,2]]
+                    
+                    if line[1] < line[3]:
+                        temp = line[0:2].clone()
+                        line[0:2] = line[2:4]
+                        line[2:4] = temp
+                        
                     new_line = line.unsqueeze(0).repeat(4,1)
                     new_line = torch.cat((new_line[:,0:2],new_line[:,2:4]),dim = 0)
                     new_lines.append(new_line)
                 
+                # # plot example
+                # frame = cv2.imread(vp_file.split(".csv")[0]+".png")
+                # pboxes = []
+                # for x in range(0,2000,40):
+                #     for y in range(0,120,12):
+                #         box = torch.tensor([x,y,0.01,0.01,semi_height,1])
+                #         pboxes.append(box)
+                # pboxes = torch.stack(pboxes)
+                # imboxes = hg.state_to_im(pboxes,name = camera_name)
+                # hg.plot_boxes(frame,imboxes)
+                
+                # cv2.imshow("frame",frame)
+                # cv2.waitKey(0)
+                # cv2.destroyAllWindows()
+                
+                
+                
                 # use to fit Z scaling
                 new_lines = torch.stack(new_lines)
                 heights = torch.ones(new_lines.shape[0]) * semi_height
-                hg.scale_Z(new_lines,heights,name = camera_name,)
+                hg.scale_Z(new_lines,heights,name = camera_name)
 
+                # plot example
+                if SHOW:
+                    frame = cv2.imread(vp_file.split(".csv")[0]+".png")
+                    pboxes = []
+                    for x in range(0,2000,40):
+                        for y in range(0,120,12):
+                            box = torch.tensor([x,y,0.01,0.01,semi_height,1])
+                            pboxes.append(box)
+                    pboxes = torch.stack(pboxes)
+                    imboxes = hg.state_to_im(pboxes,name = camera_name)
+                    hg.plot_boxes(frame,imboxes)
+                    
+                    cv2.imshow("frame",frame)
+                    cv2.waitKey(800)
+                    cv2.destroyAllWindows()
+                
                 # if fit_Z:
                 #     try:
                 #         labels,data = load_i24_csv(data_file)
@@ -642,7 +689,7 @@ class Homography():
         return top_error + bottom_error
         
         
-    def scale_Z(self,boxes,heights,name = None, granularity = 1e-06, max_scale = 10):
+    def scale_Z(self,boxes,heights,name = None, granularity = 1e-08, max_scale = 1000):
         """
         When a new correspondence is added, the 3rd column of P is off by a scale factor
         relative to the other columns. This function scales P optimally
@@ -664,10 +711,10 @@ class Homography():
         P_orig = self.correspondence[name]["P"].copy()
         
         upper_bound = max_scale
-        lower_bound = granularity
+        lower_bound = -max_scale
         
         # create a grid of 10 evenly spaced entries between upper and lower bound
-        C_grid = np.linspace(lower_bound,upper_bound,num = 10)
+        C_grid = np.linspace(lower_bound,upper_bound,num = 100)
         step_size = C_grid[1] - C_grid[0]
         iteration = 1
         
@@ -701,6 +748,14 @@ class Homography():
 
             #print("New C_grid: {}".format(C_grid.round(4)))
             iteration += 1
+        
+        
+        
+        P_new = P_orig.copy()
+        P_new[:,2] *= best_C
+        self.correspondence[name]["P"] = P_new
+            
+        
         print("Best Error: {}".format(best_error))
         
         
@@ -863,8 +918,8 @@ class HomographyWrapper():
         """
          
         if hg1 is None and hg2 is None:
-            hg1 = "EB_homography_46.cpkl"
-            hg2 = "WB_homography_46.cpkl"
+            hg1 = "EB_homography_46a.cpkl"
+            hg2 = "WB_homography_46a.cpkl"
         
 
         self.hg1 = get_homographies(save_file = hg1 ,direction = "EB")
