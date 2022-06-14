@@ -1,6 +1,10 @@
 import torch.multiprocessing as mp
 import torch
 
+#from ..log_init import logger
+from i24_logger.log_writer import logger,catch_critical
+
+
 class DeviceBank():
     """
     DeviceBank  maintains a list of DeviceHandler objects, one per GPU device.
@@ -8,6 +12,7 @@ class DeviceBank():
     in parallel. The main purpose of the DeviceBank is as a simple input-splitter and output-combiner,
     as well as to initialize each DeviceHandler with the correct parameters
     """
+    
     
     def __init__(self,device_ids,pipelines,device_cam_names,ctx):
         """
@@ -40,11 +45,12 @@ class DeviceBank():
             self.send_queues.append(in_queue)
             self.receive_queues.append(out_queue)
         
-        print("Started {} pipeline handler processes".format(len(self.device_ids)))
+        logger.debug("Main started {} pipeline handler processes".format(len(self.device_ids)))
         self.device_cam_names = device_cam_names
         
         self.ctx = ctx   
-        
+      
+    @catch_critical()
     def __call__(self,prior_stack,frames,pipeline_idx=0):
         """
         :prior_stack - list of items (obj_ids,priors,cam_idx), one for each device
@@ -68,7 +74,6 @@ class DeviceBank():
         # concat and return results
         result = self.concat_stack(result)    
         return result
-    
     
     
     
@@ -124,13 +129,14 @@ class DeviceBank():
             
         # TODO log DeviceBank shutdown
         
-
 def handle_device(in_queue,out_queue,pipelines,device_id,this_dev_cam_names):
    
     # intialize
     #device = torch.cuda.device("cuda:{}".format(device_id) if device_id != -1 else "cpu")
     torch.cuda.set_device(device_id)
     
+    from i24_logger.log_writer import logger
+    logger.debug("Device handler {} initialized".format(device_id))
     
     while True:
         
