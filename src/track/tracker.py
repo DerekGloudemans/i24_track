@@ -302,7 +302,14 @@ class BaseTracker():
                     removals.remove(id)
                     
                 tstate.remove(removals)
-                        
+                
+            # remove anomalies
+            ids,states = tstate()
+            removals = []
+            for i in range(len(ids)):
+                if states[i][2] > 80 or states[i][2] < 10 or states[i][3] > 15 or states[i][3] < 3 or states[i][4] > 16 or states[i][4] < 3:
+                    removals.append(ids[i].item())
+            tstate.remove(removals)
             
           
         # if no detections, increment fsld in all tracked objects

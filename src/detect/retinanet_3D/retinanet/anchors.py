@@ -33,11 +33,12 @@ class Anchors(nn.Module):
             all_anchors     = np.append(all_anchors, shifted_anchors, axis=0)
 
         all_anchors = np.expand_dims(all_anchors, axis=0)
-
-        if torch.cuda.is_available():
-            return torch.from_numpy(all_anchors.astype(np.float32)).cuda()
-        else:
-            return torch.from_numpy(all_anchors.astype(np.float32))
+        all_anchors = torch.tensor(all_anchors).to(image.device)
+        return all_anchors
+        #if torch.cuda.is_available():
+        #    return torch.from_numpy(all_anchors.astype(np.float32)).cuda()
+        #else:
+        #    return torch.from_numpy(all_anchors.astype(np.float32))
 
 def generate_anchors(base_size=128, ratios=None, scales=None):
     """

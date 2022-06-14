@@ -153,9 +153,9 @@ if __name__ == "__main__":
     tracker = get_Tracker(params.tracker)
 
     # add Associate function to each pipeline
-    for i in range(len(pipelines)):
-        assoc = associators[i]
-        pipelines[i].associate = associators[i]
+    # for i in range(len(pipelines)):
+    #     assoc = associators[i]
+    #     pipelines[i].associate = associators[i]
 
     # initialize DetectorBank
     dbank = DeviceBank(params.cuda_devices, pipelines, dmap.gpu_cam_names, ctx)
@@ -203,7 +203,8 @@ if __name__ == "__main__":
         if True: # shortout actual processing
             
             # select pipeline for this frame
-            pipeline_idx = 0
+            pidx = frames_processed % len(params.pipeline_pattern)
+            pipeline_idx = params.pipeline_pattern[pidx]
     
             camera_idxs, device_idxs, obj_times = dmap(tstate, ts_trunc)
             obj_ids, priors, selected_obj_idxs = tracker.preprocess(
@@ -223,9 +224,9 @@ if __name__ == "__main__":
                 obj_ids, priors, device_idxs, camera_idxs, run_device_ids=params.cuda_devices)
     
             # test on a single on-process pipeline
-            # pipelines[0].set_device(0)
-            # pipelines[0].set_cam_names(dmap.gpu_cam_names[0])
-            # test = pipelines[0](frames[0],prior_stack[0])
+            # pipelines[pipeline_idx].set_device(0)
+            # pipelines[pipeline_idx].set_cam_names(dmap.gpu_cam_names[0])
+            # test = pipelines[pipeline_idx](frames[0],prior_stack[0])
     
     
             # TODO - full frame detections should probably get full set of objects?
@@ -234,24 +235,28 @@ if __name__ == "__main__":
         
        
             detections, confs, classes, detection_cam_names, associations = dbank(
-                prior_stack, frames, pipeline_idx=0)
+                prior_stack, frames, pipeline_idx=pipeline_idx)
             
             # THIS MAY BE SLOW SINCE ITS DOUBLE INDEXING
             detection_times = torch.tensor(
                 [ts_trunc[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
             
-            detections_orig = detections.clone()
-            if True and len(detections) > 0:
-                # do nms across all device batches to remove dups
-                space_new = hg.state_to_space(detections)
-                keep = space_nms(space_new,confs)
-                detections = detections[keep,:]
-                classes = classes[keep]
-                confs = confs[keep]
-                detection_times = detection_times[keep]
             
-            # overwrite associations here
-            associations = associators[0](obj_ids,priors,detections,hg)
+            
+            
+            if pipeline_idx == 0:
+                detections_orig = detections.clone()
+                if True and len(detections) > 0:
+                    # do nms across all device batches to remove dups
+                    space_new = hg.state_to_space(detections)
+                    keep = space_nms(space_new,confs)
+                    detections = detections[keep,:]
+                    classes = classes[keep]
+                    confs = confs[keep]
+                    detection_times = detection_times[keep]
+                
+                # overwrite associations here
+                associations = associators[0](obj_ids,priors,detections,hg)
     
             
             terminated_objects = tracker.postprocess(
@@ -267,7 +272,7 @@ if __name__ == "__main__":
         # optionally, plot outputs
         if params.plot:
             plot_scene(tstate, frames, ts_trunc, dmap.gpu_cam_names,
-                 hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed,detections = detections)
+                 hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed,detections = detections,priors = priors)
 
         
         # text readout update

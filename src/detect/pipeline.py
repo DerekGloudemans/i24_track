@@ -76,7 +76,8 @@ class DetectPipeline():
         # Associate
         #matchings = self.associate(ids,priors,detections,self.hg)
         matchings = []
-        del frames
+
+        del frames,priors
         return detections,confs,classes,detection_cam_names,matchings
     
     def set_cam_names(self,cam_names):
@@ -86,12 +87,12 @@ class DetectPipeline():
     def set_device(self,device_id = -1):
         # configure detector
         self.device = torch.device("cuda:{}".format(device_id) if device_id != -1 else "cpu")
-        if device_id != -1:
-            torch.cuda.set_device(device_id)
+        
         self.detector = self.detector.to(self.device)
         self.detector.eval()
         
-        torch.cuda.set_device(self.device)
+        if device_id != -1:
+            torch.cuda.set_device(device_id)
     
     
     
@@ -211,20 +212,17 @@ class RetinanetCropFramePipeline(DetectPipeline):
         #[ids,priors,frame_idx,cam_names] = priors
         
         # no frames assigned to this GPU
-        if frames.shape[0] == 0:
+        if frames.shape[0] == 0 or len(priors[0]) == 0:
             del frames
-            return torch.empty([0,6]) , torch.empty(0), torch.empty(0), [], []
+            return torch.empty([0,6]) , torch.empty(0), torch.empty(0), [], torch.empty(0)
         
         
         prepped_frames,crop_boxes = self.prep_frames(frames,priors = priors)
         detection_result = self.detect(prepped_frames)
         detections,classes,confs,detection_cam_names,matchings  = self.post_detect(detection_result,priors,crop_boxes)
         
-
-    
-    
-        del frames
-        return detections,confs,classes,detection_cam_names,matchings
+        del frames,priors,crop_boxes
+        return detections.cpu(),confs.cpu(),classes.cpu(),detection_cam_names,matchings
         
     
     def prep_frames(self,frames,priors):
@@ -256,11 +254,14 @@ class RetinanetCropFramePipeline(DetectPipeline):
     def post_detect(self,detection_result,priors,crop_boxes):
 
         ids,objs,frame_idxs,cam_names = priors
+        objs = objs.to(self.device)
         
         reg_boxes, classes = detection_result
         confs,classes = torch.max(classes, dim = 2)
 
-    
+        # 2. local to global mapping
+        reg_boxes = self._local_to_global(reg_boxes,crop_boxes)    
+
         # 1. Keep top k boxes
         top_idxs = torch.topk(confs,self.keep_boxes,dim = 1)[1]
         row_idxs = torch.arange(reg_boxes.shape[0]).unsqueeze(1).repeat(1,top_idxs.shape[1])
@@ -269,22 +270,19 @@ class RetinanetCropFramePipeline(DetectPipeline):
         confs =  confs[row_idxs,top_idxs]
         classes = classes[row_idxs,top_idxs] 
         
-        # 2. local to global mapping
-        reg_boxes = self.local_to_global(reg_boxes,crop_boxes)
         
         # 3. Convert to space
         n_objs = reg_boxes.shape[0]
         cam_names_repeated = [cam for cam in cam_names for i in range(reg_boxes.shape[1])]
         reg_boxes = reg_boxes.reshape(-1,8,2)
-        reg_boxes_state = self.hg.im_to_state(reg_boxes,name = cam_names_repeated)
+        reg_boxes_state = self.hg.im_to_state(reg_boxes,name = cam_names_repeated,classes = classes.view(-1))
         
  
         # 4. Select best box
-        detections, classes, confs = self.select_best_box(objs,reg_boxes_state,confs,classes,n_objs)
+        detections, classes, confs = self._select_best_box(objs,reg_boxes_state,confs,classes,n_objs)
         
         
-        # note that cam_names and ids directly become detection cameras and detection ids - implicit matching
-        
+        # note that cam_names and ids directly become detection cameras and detection ids - implicit matching        
         return detections,classes,confs,cam_names,ids
         
         
@@ -314,4 +312,106 @@ class RetinanetCropFramePipeline(DetectPipeline):
             
             crop_boxes = torch.stack([minx2,miny2,maxx2,maxy2]).transpose(0,1).to(self.device)
             return crop_boxes
+        
+    def _local_to_global(self,preds,crop_boxes):
+        """
+        Convert from crop coordinates to frame coordinates
+        preds - [n,d,20] array where n indexes object and d indexes detections for that object
+        crops_boxes - [n,4] array
+        """
+        n = preds.shape[0]
+        d = preds.shape[1]
+        preds = preds.reshape(n,d,10,2)
+        preds = preds[:,:,:8,:] # drop 2D boxes
+        
+        scales = torch.max(torch.stack([crop_boxes[:,2] - crop_boxes[:,0],crop_boxes[:,3] - crop_boxes[:,1]]),dim = 0)[0]
+        
+        # preds is [n,d,8,2] - expand scale, currently [n], to match
+        scales = scales.unsqueeze(1).unsqueeze(1).unsqueeze(1).repeat(1,d,8,2)
+        
+        # scale each box by the box scale / crop size self.cs
+        preds = preds * scales / self.crop_size
+    
+        # shift based on crop box corner
+        preds[:,:,:,0] += crop_boxes[:,0].unsqueeze(1).unsqueeze(1).repeat(1,d,8)
+        preds[:,:,:,1] += crop_boxes[:,1].unsqueeze(1).unsqueeze(1).repeat(1,d,8)
+        
+        return preds
+    
+    def _select_best_box(self,a_priori,preds,confs,classes,n_objs):
+        """
+        a_priori - [n,6] array of state formulation object priors
+        preds    - [n,d,6] array where n indexes object and d indexes detections for that object, in state formulation
+        confs   - [n,d] array of confidence for each pred
+        confs   - [n,d] array of class prediction for each pred
+        returns  - [n,6] array of best matched objects
+        """
+
+        
+        # convert  preds into space 
+        preds_space = self.hg.state_to_space(preds.clone())
+        preds_space = preds_space.reshape(n_objs,-1,8,3)
+        preds = preds.reshape(n_objs,-1,6)
+        
+        n = preds_space.shape[0] 
+        d = preds_space.shape[1]
+        
+        # convert into xmin ymin xmax ymax form        
+        boxes_new = torch.zeros([n,d,4],device = preds.device)
+        boxes_new[:,:,0] = torch.min(preds_space[:,:,0:4,0],dim = 2)[0]
+        boxes_new[:,:,2] = torch.max(preds_space[:,:,0:4,0],dim = 2)[0]
+        boxes_new[:,:,1] = torch.min(preds_space[:,:,0:4,1],dim = 2)[0]
+        boxes_new[:,:,3] = torch.max(preds_space[:,:,0:4,1],dim = 2)[0]
+        preds_space = boxes_new
+        
+        # convert a_priori into space
+        a_priori = self.hg.state_to_space(a_priori.clone())
+        boxes_new = torch.zeros([n,4],device =  a_priori.device)
+        boxes_new[:,0] = torch.min(a_priori[:,0:4,0],dim = 1)[0]
+        boxes_new[:,2] = torch.max(a_priori[:,0:4,0],dim = 1)[0]
+        boxes_new[:,1] = torch.min(a_priori[:,0:4,1],dim = 1)[0]
+        boxes_new[:,3] = torch.max(a_priori[:,0:4,1],dim = 1)[0]
+        a_priori = boxes_new
+        
+        # a_priori is now [n,4] need to repeat by [d]
+        a_priori = a_priori.unsqueeze(1).repeat(1,d,1)
+        
+        # calculate iou for each
+        ious = self._md_iou(preds_space.double(),a_priori.double())
+        
+        # compute score for each box [n,d]
+        scores = (1-self.w) * ious + self.w*confs
+        
+        keep = torch.argmax(scores,dim = 1)
+        
+        idx = torch.arange(n)
+        best_boxes = preds[idx,keep,:]
+        cls_preds = classes[idx,keep]
+        confs = confs[idx,keep]
+        
+        
+        # gather max score boxes
+        
+        return best_boxes, cls_preds, confs
+    
+    def _md_iou(self,a,b):
+        """
+        a,b - [batch_size ,num_anchors, 4]
+        """
+        
+        area_a = (a[:,:,2]-a[:,:,0]) * (a[:,:,3]-a[:,:,1])
+        area_b = (b[:,:,2]-b[:,:,0]) * (b[:,:,3]-b[:,:,1])
+        
+        minx = torch.max(a[:,:,0], b[:,:,0])
+        maxx = torch.min(a[:,:,2], b[:,:,2])
+        miny = torch.max(a[:,:,1], b[:,:,1])
+        maxy = torch.min(a[:,:,3], b[:,:,3])
+        zeros = torch.zeros(minx.shape,dtype=float,device = a.device)
+        
+        intersection = torch.max(zeros, maxx-minx) * torch.max(zeros,maxy-miny)
+        union = area_a + area_b - intersection
+        iou = torch.div(intersection,union)
+        
+        #print("MD iou: {}".format(iou.max(dim = 1)[0].mean()))
+        return iou
             

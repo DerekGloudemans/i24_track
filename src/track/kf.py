@@ -266,7 +266,7 @@ class Torch_KF(object):
         (i.e. non in-place version of predict())
         """
         if self.X is None or len(self.X) == 0:
-            return [],[]
+            return [],torch.empty(0,6)
         
         if dt is None:
             X_pred = self.X

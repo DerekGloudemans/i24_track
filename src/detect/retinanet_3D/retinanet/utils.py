@@ -100,7 +100,8 @@ class BBoxTransform(nn.Module):
             self.std = std
 
     def forward(self, boxes, regression):
-
+        
+        boxes = boxes.double()
         widths  = boxes[:, :, 2] - boxes[:, :, 0]
         heights = boxes[:, :, 3] - boxes[:, :, 1]
         ctr_x   = boxes[:, :, 0] + 0.5 * widths
@@ -110,7 +111,7 @@ class BBoxTransform(nn.Module):
         #regression[:,2:] -= 0.5             
 
 
-        preds = torch.zeros([regression.shape[0],regression.shape[1],20]).cuda()
+        preds = torch.zeros([regression.shape[0],regression.shape[1],20]).to(regression.device).double()
         preds[:,:,0] = regression[:,:,0] - regression[:,:,2] - regression[:,:,4] + regression[:,:,6]
         preds[:,:,1] = regression[:,:,1] - regression[:,:,3] - regression[:,:,5] + regression[:,:,7]
         preds[:,:,2] = regression[:,:,0] - regression[:,:,2] + regression[:,:,4] + regression[:,:,6]

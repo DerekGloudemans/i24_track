@@ -19,7 +19,7 @@ colors[:,0] = 0.2
 # 	[setattr(obj,key,config.getany(case,key)) for key in params.keys()]
 
 
-def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None, fr_num = 0,detections = None):
+def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None, fr_num = 0,detections = None,priors = None):
     """
     Plots the set of active cameras, or a subset thereof
     tstate - TrackState object
@@ -108,6 +108,16 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
             
             fr = hg.plot_state_boxes(
                 fr.copy(), detections_selected, name=cam_names[f_idx], labels=None,thickness = 1, color = (255,0,0))
+
+        # plot priors
+        if priors is not None and len(priors) > 0:
+            keep_pr = torch.mul(torch.where(priors[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
+                priors[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1)
+            priors_selected = priors[keep_pr,:]
+            
+            fr = hg.plot_state_boxes(
+                fr.copy(), priors_selected, name=cam_names[f_idx], labels=None,thickness = 1, color = (0,0,255))
+
 
         # plot timestamp
         fr = cv2.putText(fr.copy(), "Timestamp: {:.3f}s".format(ts[f_idx]), (10,70), cv2.FONT_HERSHEY_PLAIN,2,(0,0,0),3)

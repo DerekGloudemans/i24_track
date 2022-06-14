@@ -137,7 +137,7 @@ class TrackState():
     def predict(self,dt = None):
         self.kf.predict(dt = dt)
     
-    def update(self,detections,obj_ids,classes,confs,measurement_idx = 0):
+    def update(self,detections,obj_ids,classes,confs,measurement_idx = 1):
         if len(obj_ids) > 0:
             # update kf states
             self.kf.update(detections,obj_ids,measurement_idx = measurement_idx)
