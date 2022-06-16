@@ -429,14 +429,15 @@ class SmartTracker(BaseTracker):
                 space = hg.state_to_space(states)
                 lifespans = tstate.get_lifespans()
                 scores = torch.tensor([lifespans[id.item()] for id in ids])
-                keep = space_nms(space,scores.float(),threshold = 0.1)
+                keep = space_nms(space,scores.float(),threshold = 0.01)
                 keep_ids = ids[keep]
                 
                 removals = ids.tolist()
                 for id in keep_ids:
                     removals.remove(id)
-                    
+                
                 tstate.remove(removals)
+
                 
             # 2. Remove anomalies
             ids,states = tstate()
@@ -447,6 +448,7 @@ class SmartTracker(BaseTracker):
                         removals.append(ids[i].item())
                         break
             tstate.remove(removals)
+
             
             # 3. Remove objects that don't have enough high confidence detections
             ids,states = tstate()
@@ -460,6 +462,7 @@ class SmartTracker(BaseTracker):
                             break
             tstate.remove(removals)
 
+
             # 4. Pop objects that are out of FOV
             removals = []
             ids,states = tstate()
@@ -469,4 +472,5 @@ class SmartTracker(BaseTracker):
                     removals.append(id)
                     
             stale_objects = tstate.remove(removals)
+
             return stale_objects

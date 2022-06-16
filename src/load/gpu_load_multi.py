@@ -203,7 +203,6 @@ class GPUBackendFrameGetter:
 def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time):
     
     logger.set_name("Hardware Decode Handler {}".format(device))
-    logger.debug("Initialized.")
     
     resize = (resize[1],resize[0])
     gpuID = device

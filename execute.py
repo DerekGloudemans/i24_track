@@ -10,6 +10,47 @@ def parse_cfg_wrapper(run_config):
                        cfg_name=run_config, SCHEMA=False)
     return params
 
+class Timer:
+    
+    def __init__(self):
+        self.cur_section = None
+        self.sections = {}
+        self.section_calls = {}
+        
+        self.start_time= time.time()
+        self.split_time = None
+        
+    def split(self,section,SYNC = False):
+
+        # store split time up until now in previously active section (cur_section)
+        if self.split_time is not None:
+            if SYNC:
+                torch.cuda.synchronize()
+                
+            elapsed = time.time() - self.split_time
+            if self.cur_section in self.sections.keys():
+                self.sections[self.cur_section] += elapsed
+                self.section_calls[self.cur_section] += 1
+
+            else:
+                self.sections[self.cur_section] = elapsed
+                self.section_calls[self.cur_section] = 1
+        # start new split and activate current time
+        self.cur_section = section
+        self.split_time = time.time()
+        
+    def bins(self):
+        return self.sections
+    
+    def __repr__(self):
+        out = ["{}:{:.1f}s/call".format(key,self.sections[key]/self.section_calls[key]) for key in self.sections.keys()]
+        return str(out)
+
+
+
+
+
+
 if __name__ == "__main__":
 
     ctx = mp.get_context('spawn')
@@ -41,7 +82,7 @@ if __name__ == "__main__":
     #from src.load.gpu_load             import MCLoader
     
 
-
+    
     #%% Old run settings and setup
     if False: 
         run_config = "execute.config"       
@@ -90,6 +131,9 @@ if __name__ == "__main__":
 
     
     #%% run settings    
+    tm = Timer()
+    tm.split("Init")
+    
     run_config = "execute.config"       
     #mask = ["p46c01","p46c02", "p46c03", "p46c04", "p46c05","p46c06"]
     mask = None
@@ -197,6 +241,7 @@ if __name__ == "__main__":
         if True: # shortout actual processing
             
             # select pipeline for this frame
+            tm.split("Predict")
             pidx = frames_processed % len(params.pipeline_pattern)
             pipeline_idx = params.pipeline_pattern[pidx]
     
@@ -211,8 +256,9 @@ if __name__ == "__main__":
                 priors      =      priors[selected_obj_idxs,:]
                 device_idxs = device_idxs[selected_obj_idxs]
                 camera_idxs = camera_idxs[selected_obj_idxs]
-    
+            
             # prep input stack by grouping priors by gpu
+            tm.split("Map")
             cam_idx_names = None  # map idxs to names here
             prior_stack = dmap.route_objects(
                 obj_ids, priors, device_idxs, camera_idxs, run_device_ids=params.cuda_devices)
@@ -224,10 +270,8 @@ if __name__ == "__main__":
     
     
             # TODO - full frame detections should probably get full set of objects?
-    
             # TODO select correct pipeline based on pipeline pattern logic parameter
-        
-       
+            tm.split("Detect {}".format(pipeline_idx),SYNC = True)
             detections, confs, classes, detection_cam_names, associations = dbank(
                 prior_stack, frames, pipeline_idx=pipeline_idx)
             
@@ -237,7 +281,7 @@ if __name__ == "__main__":
             
             
             
-            
+            tm.split("Associate",SYNC = True)
             if pipeline_idx == 0:
                 detections_orig = detections.clone()
                 if True and len(detections) > 0:
@@ -252,7 +296,7 @@ if __name__ == "__main__":
                 # overwrite associations here
                 associations = associators[0](obj_ids,priors,detections,hg)
     
-            
+            tm.split("Postprocess")
             terminated_objects = tracker.postprocess(
                 detections, detection_times, classes, confs, associations, tstate, hg = hg,measurement_idx =0)
             term_objects += len(terminated_objects)
@@ -265,11 +309,13 @@ if __name__ == "__main__":
 
         # optionally, plot outputs
         if params.plot:
+            tm.split("Plot")
             plot_scene(tstate, frames, ts_trunc, dmap.gpu_cam_names,
                  hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed,detections = detections,priors = priors)
 
         
         # text readout update
+        tm.split("Bookkeeping")
         fps = frames_processed/(time.time() - start_time)
         dev = [np.abs(t-target_time) for t in timestamps]
         max_dev = max(dev)
@@ -279,10 +325,11 @@ if __name__ == "__main__":
         target_time = clock.tick(timestamps)
         
         # get next frames and timestamps
+        tm.split("Get Frames")
         frames, timestamps = loader.get_frames(target_time)
         ts_trunc = [item - start_ts for item in timestamps]
 
-        if frames_processed % 100 == 0:
+        if frames_processed % 20 == 1:
             metrics = {
                 "frame bps": fps,
                 "frame batches processed":frames_processed,
@@ -293,3 +340,6 @@ if __name__ == "__main__":
                 "avg skipped frames per processed frame": nom_framerate*(target_time - start_ts)/frames_processed -1
                 }
             logger.info("Tracking Status Log",extra = metrics)
+            logger.info("Time Utilization: {}".format(tm),extra = tm.bins())
+            
+            
