@@ -1,6 +1,15 @@
 import torch.multiprocessing as mp
 import socket
 
+from i24_logger.log_writer         import logger,catch_critical,log_warnings
+
+
+@log_warnings()
+def parse_cfg_wrapper(run_config):
+    params = parse_cfg("TRACK_CONFIG_SECTION",
+                       cfg_name=run_config, SCHEMA=False)
+    return params
+
 if __name__ == "__main__":
 
     ctx = mp.get_context('spawn')
@@ -24,17 +33,18 @@ if __name__ == "__main__":
     from src.db_write                  import WriteWrapper
     
     #from src.log_init                  import logger
-    from i24_logger.log_writer         import logger,catch_critical
+    #from i24_logger.log_writer         import logger,catch_critical,log_warnings
     
 
 
     #from src.load.cpu_load             import DummyNoiseLoader #,MCLoader
     #from src.load.gpu_load             import MCLoader
-    run_config = "execute.config"       
+    
 
 
     #%% Old run settings and setup
     if False: 
+        run_config = "execute.config"       
         #os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean"
         #os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
         in_dir = "/home/derek/Data/dataset_beta/sequence_1"
@@ -42,7 +52,7 @@ if __name__ == "__main__":
         
         # load parameters
         params = parse_cfg("TRACK_CONFIG_SECTION",
-                           cfg_name=run_config, SCHEMA=False)
+                            cfg_name=run_config, SCHEMA=False)
         
         # verify config notion of GPUs matches torch.cuda notion of available devices
         # get available devices
@@ -79,65 +89,49 @@ if __name__ == "__main__":
 
 
     
-    #%% run settings
-    else:
-        #os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_2"
-        #os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
+    #%% run settings    
+    run_config = "execute.config"       
+    #mask = ["p46c01","p46c02", "p46c03", "p46c04", "p46c05","p46c06"]
+    mask = None
+    
+    # load parameters
+    params = parse_cfg_wrapper(run_config)
+    
+    in_dir = params.input_directory
+    
+    # # initialize logger
+    # try:
+    #     log_params = {
+    #                 "log_name":"Tracking Session: {}".format(np.random.randint(0,1000000)),
+    #                 "processing_environment":os.environ["TRACK_CONFIG_SECTION"],
+    #                 "logstash_address":(params.log_host_ip,params.log_host_port),
+    #                 "connect_logstash": (True if "logstash" in params.log_mode else False),
+    #                 "connect_syslog":(True if "syslog" in params.log_mode else False),
+    #                 "connect_file": (True if "file" in params.log_mode else False),
+    #                 "connect_console":(True if "sysout" in params.log_mode else False),
+    #                 "console_log_level":params.log_level
+    #                 }
         
-        mask = ["p46c01","p46c02", "p46c03", "p46c04", "p46c05","p46c06"]
-        mask = None
-    
-        #%% Setup
-        # initialize multi-camera loader
-        #loader = DummyNoiseLoader(dmap.camera_mapping_file)
-    
-    
-        #in_dir = "/home/derek/Data/dataset_beta/sequence_1"
-        #loader = MCLoader(in_dir, dmap.camera_mapping_file, ctx)
-        
-        
-        # load parameters
-        params = parse_cfg("TRACK_CONFIG_SECTION",
-                           cfg_name=run_config, SCHEMA=False)
-        
-        in_dir = params.input_directory
-        
-        # # initialize logger
-        # try:
-        #     log_params = {
-        #                 "log_name":"Tracking Session: {}".format(np.random.randint(0,1000000)),
-        #                 "processing_environment":os.environ["TRACK_CONFIG_SECTION"],
-        #                 "logstash_address":(params.log_host_ip,params.log_host_port),
-        #                 "connect_logstash": (True if "logstash" in params.log_mode else False),
-        #                 "connect_syslog":(True if "syslog" in params.log_mode else False),
-        #                 "connect_file": (True if "file" in params.log_mode else False),
-        #                 "connect_console":(True if "sysout" in params.log_mode else False),
-        #                 "console_log_level":params.log_level
-        #                 }
-            
-        #     logger = connect_automatically(user_settings = log_params)
-        #     logger.debug("Logger initialized with custom log settings",extra = log_params)
-        # except:
-        #     logger.debug("Logger initialized with default parameters")
-    
-        # verify config notion of GPUs matches torch.cuda notion of available devices
-        # get available devices
-    
-        # TODO fix this once you redo configparse
-        params.cuda_devices = [int(i) for i in range(int(params.cuda_devices))]
-        assert max(params.cuda_devices) < torch.cuda.device_count()
-    
-        # intialize DeviceMap
-        dmap = get_DeviceMap(params.device_map)
-    
-        loader = MCLoader(in_dir, dmap.camera_mapping_file,dmap.cam_names, ctx)
+    #     logger = connect_automatically(user_settings = log_params)
+    #     logger.debug("Logger initialized with custom log settings",extra = log_params)
+    # except:
+    #     logger.debug("Logger initialized with default parameters")
 
+    # verify config notion of GPUs matches torch.cuda notion of available devices
+    # get available devices
+
+    # TODO fix this once you redo configparse
+    params.cuda_devices = [int(i) for i in range(int(params.cuda_devices))]
+    assert max(params.cuda_devices) < torch.cuda.device_count()
+
+    # intialize DeviceMap
+    dmap = get_DeviceMap(params.device_map)
+
+    loader = MCLoader(in_dir, dmap.camera_mapping_file,dmap.cam_names, ctx)
+    
+    logger.debug("Initialized {} loader processes.".format(len(loader.device_loaders)))
 
     #%% more init stuff 
-    
-    
-    
-    
     
     # initialize Homography object
     hg = HomographyWrapper(hg1 = params.eb_homography_file,hg2 = params.wb_homography_file)
@@ -197,7 +191,7 @@ if __name__ == "__main__":
     logger.debug("Initialization Complete. Starting tracking at {}s".format(start_time))
     
     # readout headers
-    print("\n\nFrame:    Since Start:  Frame BPS:    Sync Timestamp:     Max ts Deviation:     Active Objects:")
+    print("\n\nFrame:    Since Start:  Frame BPS:    Sync Timestamp:     Max ts Deviation:     Active Objects:    Written Objects:")
     while True:
         
         if True: # shortout actual processing
@@ -260,7 +254,7 @@ if __name__ == "__main__":
     
             
             terminated_objects = tracker.postprocess(
-                detections, detection_times, classes, confs, associations, tstate, hg = hg)
+                detections, detection_times, classes, confs, associations, tstate, hg = hg,measurement_idx =0)
             term_objects += len(terminated_objects)
 
             if params.write_db:
@@ -279,7 +273,7 @@ if __name__ == "__main__":
         fps = frames_processed/(time.time() - start_time)
         dev = [np.abs(t-target_time) for t in timestamps]
         max_dev = max(dev)
-        print("\r{}        {:.3f}s       {:.2f}        {:.3f}              {:.3f}                {}".format(frames_processed, time.time() - start_time,fps,target_time, max_dev, len(tstate)), end='\r', flush=True)
+        print("\r{}        {:.3f}s       {:.2f}        {:.3f}              {:.3f}                {}               {}".format(frames_processed, time.time() - start_time,fps,target_time, max_dev, len(tstate), len(dbw)), end='\r', flush=True)
     
         # get next target time
         target_time = clock.tick(timestamps)

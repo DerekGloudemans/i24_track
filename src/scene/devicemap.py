@@ -201,6 +201,7 @@ class DeviceMap():
         return prior_stack
     
 class HeuristicDeviceMap(DeviceMap):
+    
     @catch_critical()
     def __init__(self):
         super(HeuristicDeviceMap, self).__init__()
@@ -255,7 +256,7 @@ class HeuristicDeviceMap(DeviceMap):
             return [],[]
         
         ## create is_visible, [n_objects,n_cameras]
-
+    
         # broadcast both to [n_objs,n_cameras,2]
         states_brx = states[:,0].unsqueeze(1).unsqueeze(2).expand(n_o,n_c,2)
         states_bry = states[:,1].unsqueeze(1).expand(n_o,n_c)
@@ -274,6 +275,7 @@ class HeuristicDeviceMap(DeviceMap):
         ts_valid = [(0 if item < 1 else 1) for item in ts]
         ts_valid = torch.tensor(ts_valid).int().unsqueeze(0).expand(n_o,n_c)
         #ts_valid = torch.nan_to_num(ts+1).clamp(0,1).int().unsqueeze(0).expand(n_o,n_c)
+        ts_valid = torch.ones([n_o,n_c])
         
         # create priority, [n_objs,n_cameras]
         priority = self.priority.unsqueeze(0).expand(n_o,n_c)

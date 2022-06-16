@@ -346,15 +346,15 @@ class Torch_KF(object):
             Unique obj_id (int) for each detection
         """
         
-        if measurement_idx == 1:
+        if measurement_idx == 0:
             mu_R = self.mu_R
             H = self.H
             R = self.R
-        elif measurement_idx == 2:
+        elif measurement_idx == 1:
             mu_R = self.mu_R2
             R = self.R2
             H = self.H2
-        elif measurement_idx == 3:
+        elif measurement_idx == 2:
             mu_R = self.mu_R3
             R = self.R3
             H = self.H3        

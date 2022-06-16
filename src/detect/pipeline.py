@@ -343,7 +343,7 @@ class RetinanetCropFramePipeline(DetectPipeline):
         a_priori - [n,6] array of state formulation object priors
         preds    - [n,d,6] array where n indexes object and d indexes detections for that object, in state formulation
         confs   - [n,d] array of confidence for each pred
-        confs   - [n,d] array of class prediction for each pred
+        classes   - [n,d] array of class prediction for each pred
         returns  - [n,6] array of best matched objects
         """
 

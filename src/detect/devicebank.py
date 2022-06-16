@@ -135,7 +135,8 @@ def handle_device(in_queue,out_queue,pipelines,device_id,this_dev_cam_names):
     #device = torch.cuda.device("cuda:{}".format(device_id) if device_id != -1 else "cpu")
     torch.cuda.set_device(device_id)
     
-    from i24_logger.log_writer import logger
+    #from i24_logger.log_writer import logger
+    logger.set_name("Tracking Device Handler {}".format(device_id))
     logger.debug("Device handler {} initialized".format(device_id))
     
     while True:

@@ -37,6 +37,12 @@ class WriteWrapper():
     
     
         col = self.dbw.collection
+        
+        
+        logger.debug("Initialized log writer to Collection {} ({} existing records)".format(self.raw_collection,len(self)))
+        
+        self.prev_len = len(self) -1
+        self.prev_doc = None
     
     @catch_critical()
     def __len__(self):
@@ -49,6 +55,14 @@ class WriteWrapper():
         Converts trajectories as dequeued from TrackState into document form and inserts with dbw
         trajectories - output from TrackState.remove()
         """
+        
+        if len(trajectories) == 0:
+            return
+        
+        # cur_len = len(self)
+        # if cur_len == self.prev_len:
+        #     logger.warning("\n Document {} was not correctly inserted into database collection {}".format(self.prev_doc,self.raw_collection))
+        # self.prev_len = cur_len
         
         for id in trajectories.keys():
             trajectory = trajectories[id]
@@ -87,10 +101,13 @@ class WriteWrapper():
             doc["direction"]               = -1 if y[0] > 60 else 1
             
             
+            
+            
             # insert
-            start_len = len(self)
-            self.dbw.write_one_trajectory(**doc) 
-            #assert (len(self) == start_len + 1), "Document was not correctly inserted into database collection {} in tracker component (PID {})".format(self.raw_collection,self.PID)
+            if len(x) > self.min_document_length:
+                self.dbw.write_one_trajectory(**doc) 
+                
+    
             
 
 test = WriteWrapper()

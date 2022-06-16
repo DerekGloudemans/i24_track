@@ -137,7 +137,7 @@ class TrackState():
     def predict(self,dt = None):
         self.kf.predict(dt = dt)
     
-    def update(self,detections,obj_ids,classes,confs,measurement_idx = 1):
+    def update(self,detections,obj_ids,classes,confs,measurement_idx = 1,high_confidence_threshold = 0):
         if len(obj_ids) > 0:
             # update kf states
             self.kf.update(detections,obj_ids,measurement_idx = measurement_idx)
@@ -149,9 +149,11 @@ class TrackState():
         # update fsld, class, and conf
         for i,id in enumerate(obj_ids):
             self.all_classes[id][int(classes[i])] += 1
-            self.all_confs[id] = confs[i]
-            self.fsld[id] = 0
+            self.all_confs[id].append(confs[i])
             
+            if confs[i] > high_confidence_threshold:
+                self.fsld[id] = 0
+                
         # update stored history
         for id in obj_ids:
             self._update_history(id)

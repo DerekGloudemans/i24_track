@@ -16,7 +16,7 @@ from PIL import Image
 
 from torchvision.transforms import functional as F
 
-from i24_logger.log_writer import catch_critical
+from i24_logger.log_writer import logger,catch_critical
 
 class ManagerClock:
     def __init__(self,start_ts,desired_processing_speed,framerate):
@@ -201,6 +201,10 @@ class GPUBackendFrameGetter:
         #     return None
         
 def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time):
+    
+    logger.set_name("Hardware Decode Handler {}".format(device))
+    logger.debug("Initialized.")
+    
     resize = (resize[1],resize[0])
     gpuID = device
     device = torch.cuda.device("cuda:{}".format(gpuID))
@@ -223,7 +227,9 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time):
                 last_file = file
                 NEXTFILE = True
                 break
-            
+           
+        logger.debug("Loading frames from {}".format(file))
+        
         if not NEXTFILE:
             raise Exception("Reached last file for directory {}".format(directory))
             

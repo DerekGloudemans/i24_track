@@ -13,6 +13,8 @@ def get_Tracker(name):
     """
     if name == "BaseTracker":
         tracker = BaseTracker()
+    elif name == "SmartTracker":
+        tracker = SmartTracker()  
     else:
         raise NotImplementedError("No BaseTracker child class named {}".format(name))
     
@@ -216,7 +218,7 @@ class BaseTracker():
         return torch.tensor([i for i in range(len(tstate))])
         
 
-    def postprocess(self,detections,detection_times,classes,confs,assigned_ids,tstate,meas_idx = 1,hg = None):
+    def postprocess(self,detections,detection_times,classes,confs,assigned_ids,tstate,hg = None,measurement_idx = 0):
         """
         Updates KF representation of objects where assigned_id is not -1 (unassigned)
         Adds other objects as new detections
@@ -256,7 +258,7 @@ class BaseTracker():
                 update_detections = detections[update_idxs,:]
                 update_classes = classes[update_idxs]
                 update_confs = confs[update_idxs]
-                tstate.update(update_detections[:,:5],update_ids,update_classes,update_confs, measurement_idx = meas_idx)
+                tstate.update(update_detections[:,:5],update_ids,update_classes,update_confs, measurement_idx = measurement_idx)
             
             # collect unassigned detections
             new_idxs = [i for i in range(len(assigned_ids))]
@@ -322,18 +324,149 @@ class BaseTracker():
         return stale_objects
 
 
+    # TODO - remove this hard-coded removal rule
     def remove(self,tstate):
         """
         
         """
         # remove stale objects
         removals = []
-        for id in tstate()[0]:
-            id = id.item()
-            if tstate.fsld[id] > self.fsld_max:
+        ids,states = tstate()
+        for i in range(len(ids)):
+            id = ids[i].item()
+            if tstate.fsld[id] > self.fsld_max or states[i][0] < -200 or states[i][0] > 1800:
                 removals.append(id)
                 
         stale_objects = tstate.remove(removals)
         return stale_objects
     
+ 
+class SmartTracker(BaseTracker):
     
+    def postprocess(self,
+                    detections,
+                    detection_times,
+                    classes,
+                    confs,
+                    assigned_ids,
+                    tstate,
+                    hg = None,
+                    measurement_idx = 0):
+        """
+        Updates KF representation of objects where assigned_id is not -1 (unassigned)
+        Adds other objects as new detections
+        For all TrackState objects, checks confidences and fslds and removes inactive objects
+        :param detections -tensor of size [n_detections,state_size]
+        :param detection_times - tensor of size [n_detections] with frame time
+        :param classes - tensor of size [n_detections] with integer class prediction for each
+        :param confs - tensor of size [n_detections] of confidences in range[0,1]
+        :param assigned_ids - tensor of size [n_detections] of IDs, or -1 if no id assigned
+        :param tstate - TrackState object
+        :param meas_idx - int specifying which measurement type was used
+        
+        :return - stale_objects - dictionary of object histories indexed by object ID
+        """
+
+        # get IDs and times for update
+        if len(assigned_ids) > 0:
+            update_idxs = torch.nonzero(assigned_ids + 1).squeeze(1) 
+            
+            if len(update_idxs) > 0:
+                update_ids = assigned_ids[update_idxs].tolist()
+                update_times = detection_times[update_idxs]
+                
+                tstate_ids = tstate()[0]
+                for id in update_ids:
+                    assert (id in tstate_ids), "{}".format(id)
+                    
+                
+
+                # TODO this may give an issue when some but not all objects need to be rolled forward
+                # roll existing objects forward to the detection times
+                dts = tstate.get_dt(update_times,idxs = update_ids)
+                tstate.predict(dt = dts)
+            
+            
+                # update assigned detections
+                update_detections = detections[update_idxs,:]
+                update_classes = classes[update_idxs]
+                update_confs = confs[update_idxs]
+                tstate.update(update_detections[:,:5],update_ids,update_classes,update_confs, measurement_idx = measurement_idx,high_confidence_threshold = self.sigma_high)
+            
+            # collect unassigned detections
+            new_idxs = [i for i in range(len(assigned_ids))]
+            for i in update_idxs:
+                new_idxs.remove(i)
+              
+            
+            # add new detections as new objects
+            if len(new_idxs) > 0:
+                new_idxs = torch.tensor(new_idxs)
+                new_detections = detections[new_idxs,:]
+                new_classes = classes[new_idxs]
+                new_confs = confs[new_idxs]
+                new_times = detection_times[new_idxs]
+                
+                
+                # create direction tensor based on location
+                directions = torch.where(new_detections[:,1] > 60, torch.zeros(new_confs.shape)-1,torch.ones(new_confs.shape))
+                
+                tstate.add(new_detections,directions,new_times,new_classes,new_confs,init_speed = True)
+                
+        # if no detections, increment fsld in all tracked objects
+        else:
+            tstate.update(None,[],None,None)
+            
+        stale_objects = self.remove(tstate,hg)
+        return stale_objects
+            
+    def remove(self,tstate,hg = None):
+        
+            
+            # 1. do nms on all objects to remove overlaps, where score = # of frames since initialized
+            if  hg is not None:
+                ids,states = tstate()
+                space = hg.state_to_space(states)
+                lifespans = tstate.get_lifespans()
+                scores = torch.tensor([lifespans[id.item()] for id in ids])
+                keep = space_nms(space,scores.float(),threshold = 0.1)
+                keep_ids = ids[keep]
+                
+                removals = ids.tolist()
+                for id in keep_ids:
+                    removals.remove(id)
+                    
+                tstate.remove(removals)
+                
+            # 2. Remove anomalies
+            ids,states = tstate()
+            removals = []
+            for i in range(len(ids)):
+                for j in range(5):
+                    if states[i,j] < self.state_bounds[2*j] or states[i,j] > self.state_bounds[2*j+1]:
+                        removals.append(ids[i].item())
+                        break
+            tstate.remove(removals)
+            
+            # 3. Remove objects that don't have enough high confidence detections
+            ids,states = tstate()
+            removals = []
+            for id in ids:
+                id = id.item()
+                if len(tstate.all_confs[id]) == self.n_init:
+                    for conf in tstate.all_confs[id]:
+                        if conf < self.sigma_high:
+                            removals.append(id)
+                            break
+            tstate.remove(removals)
+
+            # 4. Pop objects that are out of FOV
+            removals = []
+            ids,states = tstate()
+            for i in range(len(ids)):
+                id = ids[i].item()
+                if tstate.fsld[id] > self.fsld_max or states[i][0] < self.fov[0] or states[i][0] > self.fov[1]:
+                    removals.append(id)
+                    
+            stale_objects = tstate.remove(removals)
+            return stale_objects
