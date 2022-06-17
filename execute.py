@@ -230,9 +230,9 @@ if __name__ == "__main__":
                 obj_ids, priors, device_idxs, camera_idxs, run_device_ids=params.cuda_devices)
     
             # test on a single on-process pipeline
-            pipelines[pipeline_idx].set_device(0)
-            pipelines[pipeline_idx].set_cam_names(dmap.gpu_cam_names[0])
-            test = pipelines[pipeline_idx](frames[0],prior_stack[0])
+            # pipelines[pipeline_idx].set_device(0)
+            # pipelines[pipeline_idx].set_cam_names(dmap.gpu_cam_names[0])
+            # test = pipelines[pipeline_idx](frames[0],prior_stack[0])
     
     
             # TODO - full frame detections should probably get full set of objects?

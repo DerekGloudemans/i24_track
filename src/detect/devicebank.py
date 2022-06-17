@@ -37,7 +37,7 @@ class DeviceBank():
             for p in pipelines:
                 p.set_cam_names(device_cam_names[dev_idx])
                 p.set_device(device_ids[dev_idx])
-            in_queue = ctx.Manager().Queue()
+            in_queue = ctx.Queue()
             out_queue = ctx.Manager().Queue() # for some reason this is much faster queue but can't send CUDA tensors recieved from other processes
             handler = ctx.Process(target=handle_device, args=(in_queue,out_queue,pipelines,dev_idx,device_cam_names[dev_idx]))
             handler.start()
