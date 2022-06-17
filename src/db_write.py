@@ -109,5 +109,5 @@ class WriteWrapper():
                 
     
             
-
-test = WriteWrapper()
+if __name__ == "__main__":
+    test = WriteWrapper()

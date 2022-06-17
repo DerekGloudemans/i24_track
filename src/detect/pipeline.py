@@ -8,6 +8,8 @@ from .retinanet_3D.retinanet.model import resnet50 as Retinanet3D
 
 from i24_logger.log_writer import logger,catch_critical
 
+from ..util.misc import Timer
+
 @catch_critical()
 def get_Pipeline(name,hg):
     """
@@ -206,23 +208,40 @@ class RetinanetCropFramePipeline(DetectPipeline):
 
         self.cam_names = None
         
+        self.tm = Timer()
+        
+        self.batches_processed = 0
+        
     @catch_critical()
     def __call__(self,frames,priors):
         
         #[ids,priors,frame_idx,cam_names] = priors
         
+        # periodically log time utilization
+        self.batches_processed += 1
+        if self.batches_processed %20 == 0:
+            logger.info("Crop Pipeline Time Util: {}".format(self.tm),extra = self.tm.bins())
+            
+            
         # no frames assigned to this GPU
         if frames.shape[0] == 0 or len(priors[0]) == 0:
             del frames
             return torch.empty([0,6]) , torch.empty(0), torch.empty(0), [], torch.empty(0)
         
-        
+        self.tm.split("Pre",SYNC=True)
         prepped_frames,crop_boxes = self.prep_frames(frames,priors = priors)
+        self.tm.split("Detect",SYNC=True)
         detection_result = self.detect(prepped_frames)
+        self.tm.split("Post",SYNC=True)
         detections,classes,confs,detection_cam_names,matchings  = self.post_detect(detection_result,priors,crop_boxes)
         
+        self.tm.split("GPU->CPU",SYNC = True)
         del frames,priors,crop_boxes
-        return detections.cpu(),confs.cpu(),classes.cpu(),detection_cam_names,matchings
+        ret =  detections.cpu(),confs.cpu(),classes.cpu(),detection_cam_names,matchings
+        
+        self.tm.split("Waiting",SYNC = True)
+        return ret
+        
         
     
     def prep_frames(self,frames,priors):

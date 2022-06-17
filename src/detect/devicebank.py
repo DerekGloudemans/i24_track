@@ -4,6 +4,7 @@ import torch
 #from ..log_init import logger
 from i24_logger.log_writer import logger,catch_critical
 
+from ..util.misc import Timer
 
 class DeviceBank():
     """
@@ -36,8 +37,8 @@ class DeviceBank():
             for p in pipelines:
                 p.set_cam_names(device_cam_names[dev_idx])
                 p.set_device(device_ids[dev_idx])
-            in_queue = ctx.Queue()
-            out_queue = ctx.Queue()
+            in_queue = ctx.Manager().Queue()
+            out_queue = ctx.Manager().Queue() # for some reason this is much faster queue but can't send CUDA tensors recieved from other processes
             handler = ctx.Process(target=handle_device, args=(in_queue,out_queue,pipelines,dev_idx,device_cam_names[dev_idx]))
             handler.start()
             
@@ -49,6 +50,9 @@ class DeviceBank():
         self.device_cam_names = device_cam_names
         
         self.ctx = ctx   
+        
+        self.tm = Timer()
+        self.batches_processed = 0
       
     @catch_critical()
     def __call__(self,prior_stack,frames,pipeline_idx=0):
@@ -62,17 +66,28 @@ class DeviceBank():
         
         
         """
+        
+        self.batches_processed += 1
+        if self.batches_processed % 20 == 0:
+            logger.info("DeviceBank Time Util: {}".format(self.tm),extra = self.tm.bins())
+
+        
         # send tasks
+        self.tm.split("Send",SYNC = True)
         for i in range(len(prior_stack)):
             self.send_queues[i].put((prior_stack[i],frames[i],pipeline_idx))
         
         # get results
         result = []
         for i in range(len(prior_stack)):
+            self.tm.split("Recieve {}".format(i),SYNC = True)
             result.append(self.receive(i))
         
         # concat and return results
+        self.tm.split("Concat",SYNC = True)
         result = self.concat_stack(result)    
+        
+        self.tm.split("Waiting")
         return result
     
     

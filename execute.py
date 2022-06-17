@@ -10,41 +10,7 @@ def parse_cfg_wrapper(run_config):
                        cfg_name=run_config, SCHEMA=False)
     return params
 
-class Timer:
-    
-    def __init__(self):
-        self.cur_section = None
-        self.sections = {}
-        self.section_calls = {}
-        
-        self.start_time= time.time()
-        self.split_time = None
-        
-    def split(self,section,SYNC = False):
 
-        # store split time up until now in previously active section (cur_section)
-        if self.split_time is not None:
-            if SYNC:
-                torch.cuda.synchronize()
-                
-            elapsed = time.time() - self.split_time
-            if self.cur_section in self.sections.keys():
-                self.sections[self.cur_section] += elapsed
-                self.section_calls[self.cur_section] += 1
-
-            else:
-                self.sections[self.cur_section] = elapsed
-                self.section_calls[self.cur_section] = 1
-        # start new split and activate current time
-        self.cur_section = section
-        self.split_time = time.time()
-        
-    def bins(self):
-        return self.sections
-    
-    def __repr__(self):
-        out = ["{}:{:.1f}s/call".format(key,self.sections[key]/self.section_calls[key]) for key in self.sections.keys()]
-        return str(out)
 
 
 
@@ -62,7 +28,7 @@ if __name__ == "__main__":
     import time
 
     from src.util.bbox                 import space_nms
-    from src.util.misc                 import plot_scene,colors
+    from src.util.misc                 import plot_scene,colors,Timer
     from i24_configparse               import parse_cfg
     from src.track.tracker             import get_Tracker, get_Associator
     from src.track.trackstate          import TrackState
@@ -264,9 +230,9 @@ if __name__ == "__main__":
                 obj_ids, priors, device_idxs, camera_idxs, run_device_ids=params.cuda_devices)
     
             # test on a single on-process pipeline
-            # pipelines[pipeline_idx].set_device(0)
-            # pipelines[pipeline_idx].set_cam_names(dmap.gpu_cam_names[0])
-            # test = pipelines[pipeline_idx](frames[0],prior_stack[0])
+            pipelines[pipeline_idx].set_device(0)
+            pipelines[pipeline_idx].set_cam_names(dmap.gpu_cam_names[0])
+            test = pipelines[pipeline_idx](frames[0],prior_stack[0])
     
     
             # TODO - full frame detections should probably get full set of objects?

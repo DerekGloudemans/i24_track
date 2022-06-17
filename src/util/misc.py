@@ -2,7 +2,7 @@ from torchvision import transforms
 import torch
 import numpy as np
 import cv2
-
+import time
 
 colors = np.random.randint(0,255,[1000,3])
 colors[:,0] = 0.2
@@ -17,6 +17,43 @@ colors[:,0] = 0.2
 # 	# set object attributes according to config case
 # 	# getany() automatically parses type (int,float,bool,string) from config
 # 	[setattr(obj,key,config.getany(case,key)) for key in params.keys()]
+
+
+class Timer:
+    
+    def __init__(self):
+        self.cur_section = None
+        self.sections = {}
+        self.section_calls = {}
+        
+        self.start_time= time.time()
+        self.split_time = None
+        
+    def split(self,section,SYNC = False):
+
+        # store split time up until now in previously active section (cur_section)
+        if self.split_time is not None:
+            if SYNC:
+                torch.cuda.synchronize()
+                
+            elapsed = time.time() - self.split_time
+            if self.cur_section in self.sections.keys():
+                self.sections[self.cur_section] += elapsed
+                self.section_calls[self.cur_section] += 1
+
+            else:
+                self.sections[self.cur_section] = elapsed
+                self.section_calls[self.cur_section] = 1
+        # start new split and activate current time
+        self.cur_section = section
+        self.split_time = time.time()
+        
+    def bins(self):
+        return self.sections
+    
+    def __repr__(self):
+        out = ["{}:{:2f}s/call".format(key,self.sections[key]/self.section_calls[key]) for key in self.sections.keys()]
+        return str(out)
 
 
 def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None, fr_num = 0,detections = None,priors = None):
