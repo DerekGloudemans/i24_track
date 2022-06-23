@@ -165,7 +165,8 @@ if __name__ == "__main__":
     dbank = DeviceBank(params.cuda_devices, pipelines, dmap.gpu_cam_names, ctx)
 
     # initialize DBWriter object
-    dbw = WriteWrapper()
+    if params.write_db:
+        dbw = WriteWrapper()
 
     # intialize empty TrackState Object
     tstate = TrackState()
@@ -276,6 +277,8 @@ if __name__ == "__main__":
         # optionally, plot outputs
         if params.plot:
             tm.split("Plot")
+            detections = None
+            priors = None
             plot_scene(tstate, frames, ts_trunc, dmap.gpu_cam_names,
                  hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed,detections = detections,priors = priors)
 

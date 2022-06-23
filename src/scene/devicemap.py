@@ -195,7 +195,7 @@ class DeviceMap():
             selected_gpu_cam_idx = torch.tensor([self.cam_gpu_idx[val][1] for val in selected_cams])
             selected_cam_names = [self.cam_names[i] for i in selected_cams]
             
-            gpu_priors = (obj_ids[selected],priors[selected,:],selected_gpu_cam_idx,selected_cam_names)
+            gpu_priors = (obj_ids[selected],priors[selected,:].to(gpu_id),selected_gpu_cam_idx,selected_cam_names)
             prior_stack.append(gpu_priors)
         
         return prior_stack

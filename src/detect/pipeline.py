@@ -228,11 +228,11 @@ class RetinanetCropFramePipeline(DetectPipeline):
             del frames
             return torch.empty([0,6]) , torch.empty(0), torch.empty(0), [], torch.empty(0)
         
-        self.tm.split("Pre",SYNC=True)
+        #self.tm.split("Pre",SYNC=True)
         prepped_frames,crop_boxes = self.prep_frames(frames,priors = priors)
         self.tm.split("Detect",SYNC=True)
         detection_result = self.detect(prepped_frames)
-        self.tm.split("Post",SYNC=True)
+
         detections,classes,confs,detection_cam_names,matchings  = self.post_detect(detection_result,priors,crop_boxes)
         
         self.tm.split("GPU->CPU",SYNC = True)
@@ -249,15 +249,20 @@ class RetinanetCropFramePipeline(DetectPipeline):
         priors - list of [ids,priors (nx6 tensor), frame_idx in stack, cam_name for prior]
         frames - 
         """
+
+        self.tm.split("Pre:get",SYNC=True)
         ids,objs,frame_idxs,cam_names = priors
         
         # 1. State to im
+        self.tm.split("Pre:state->im",SYNC=True)
         objs_im = self.hg.state_to_im(objs,name = cam_names)
     
         # 2. Get expanded boxes
+        self.tm.split("Pre:compute_crops",SYNC=True)
         crop_boxes = self._get_crop_boxes(objs_im)
         
         # 3. Crop
+        self.tm.split("Pre:crop",SYNC=True)
         cidx = frame_idxs.unsqueeze(1).to(self.device).double()
         torch_boxes = torch.cat((cidx,crop_boxes),dim = 1)
         crops = roi_align(frames,torch_boxes.float(),(self.crop_size,self.crop_size))
@@ -271,17 +276,21 @@ class RetinanetCropFramePipeline(DetectPipeline):
         return result
     
     def post_detect(self,detection_result,priors,crop_boxes):
-
+        
+        self.tm.split("Post:->GPU",SYNC=True)
         ids,objs,frame_idxs,cam_names = priors
         objs = objs.to(self.device)
-        
+    
+        self.tm.split("Post:classes",SYNC=True)        
         reg_boxes, classes = detection_result
         confs,classes = torch.max(classes, dim = 2)
 
         # 2. local to global mapping
+        self.tm.split("Post:local->global",SYNC=True)        
         reg_boxes = self._local_to_global(reg_boxes,crop_boxes)    
 
         # 1. Keep top k boxes
+        self.tm.split("Post:topk",SYNC=True)  
         top_idxs = torch.topk(confs,self.keep_boxes,dim = 1)[1]
         row_idxs = torch.arange(reg_boxes.shape[0]).unsqueeze(1).repeat(1,top_idxs.shape[1])
         
@@ -290,14 +299,15 @@ class RetinanetCropFramePipeline(DetectPipeline):
         classes = classes[row_idxs,top_idxs] 
         
         
-        # 3. Convert to space
+        # 3. Convert to space    #### THIS IS THE SLOW ONE!!!
+        self.tm.split("Post:->space",SYNC=True)  
         n_objs = reg_boxes.shape[0]
         cam_names_repeated = [cam for cam in cam_names for i in range(reg_boxes.shape[1])]
-        reg_boxes = reg_boxes.reshape(-1,8,2)
-        reg_boxes_state = self.hg.im_to_state(reg_boxes,name = cam_names_repeated,classes = classes.view(-1))
+        reg_boxes_state = self.hg.im_to_state(reg_boxes.view(-1,8,2),name = cam_names_repeated,classes = classes.view(-1))
         
  
         # 4. Select best box
+        self.tm.split("select_best",SYNC=True)  
         detections, classes, confs = self._select_best_box(objs,reg_boxes_state,confs,classes,n_objs)
         
         
@@ -314,21 +324,25 @@ class RetinanetCropFramePipeline(DetectPipeline):
             """
             
             # find xmin,xmax,ymin, and ymax for 3D box points
+            self.tm.split("Crop:minmax",SYNC=True)
             minx = torch.min(objects[:,:,0],dim = 1)[0]
             miny = torch.min(objects[:,:,1],dim = 1)[0]
             maxx = torch.max(objects[:,:,0],dim = 1)[0]
             maxy = torch.max(objects[:,:,1],dim = 1)[0]
             
+            self.tm.split("Crop:scale",SYNC=True)
             w = maxx - minx
             h = maxy - miny
             scale = torch.max(torch.stack([w,h]),dim = 0)[0] * self.box_expansion_ratio
             
+            self.tm.split("Crop:xysr",SYNC=True)
             # find a tight box around each object in xysr formulation
             minx2 = (minx+maxx)/2.0 - scale/2.0
             maxx2 = (minx+maxx)/2.0 + scale/2.0
             miny2 = (miny+maxy)/2.0 - scale/2.0
             maxy2 = (miny+maxy)/2.0 + scale/2.0
             
+            self.tm.split("Crop:stack",SYNC=True)
             crop_boxes = torch.stack([minx2,miny2,maxx2,maxy2]).transpose(0,1).to(self.device)
             return crop_boxes
         

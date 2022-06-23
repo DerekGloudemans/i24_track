@@ -986,12 +986,12 @@ class HomographyWrapper():
                 # project guess-height boxes back into image
                 repro_boxes = self.state_to_im(boxes, name = name)
             
-                # prefine guessed height based on the size of the reproj. error relative to input height
+                # refine guessed height based on the size of the reproj. error relative to input height
                 heights = self.hg1.height_from_template(repro_boxes,heights,points).to(points.device)
             else:
                 raise ValueError("Either classes or heights must be specified for homography im to state conversion")
                 
-        boxes = self._i2st(points,heights = heights,name = name)
+        boxes[:,4] = heights # = self._i2st(points,heights = heights,name = name)
         return boxes
     
     
