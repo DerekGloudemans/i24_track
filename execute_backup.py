@@ -5,34 +5,6 @@ import _pickle as pickle
 from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
 
-ctx = mp.get_context('spawn')
-
-
-import numpy as np
-import torch
-import os
-import time
-
-from src.util.bbox                 import space_nms
-from src.util.misc                 import plot_scene,colors,Timer
-from i24_configparse               import parse_cfg
-from src.track.tracker             import get_Tracker, get_Associator
-from src.track.trackstate          import TrackState
-from src.detect.pipeline           import get_Pipeline
-from src.scene.devicemap           import get_DeviceMap
-from src.scene.homography          import HomographyWrapper,Homography
-from src.detect.devicebank         import DeviceBank
-from src.load.gpu_load_multi       import MCLoader, ManagerClock
-from src.db_write                  import WriteWrapper
-
-#from src.log_init                  import logger
-#from i24_logger.log_writer         import logger,catch_critical,log_warnings
-
-
-
-#from src.load.cpu_load             import DummyNoiseLoader #,MCLoader
-#from src.load.gpu_load             import MCLoader
-
 @log_warnings()
 def parse_cfg_wrapper(run_config):
     params = parse_cfg("TRACK_CONFIG_SECTION",
@@ -54,7 +26,7 @@ def checkpoint(tstate,next_target_time,save_file = "working_checkpoint.cpkl"):
     
     with open(save_file,"wb") as f:
         pickle.dump([next_target_time,tstate],f)
-    logger.debug("Checkpointed TrackState object, time:{}s".format(next_target_time))
+    logger.debug("Checkpointed TrackState object, time:{}s".format(target_time))
 
         
 @catch_critical()
@@ -79,8 +51,6 @@ def load_checkpoint(target_time,tstate,save_file = "working_checkpoint.cpkl"):
     else:
         logger.debug("No checkpoint file exists, starting tracking from max min video timestamp")
         
-    return target_time,tstate
-        
 @catch_critical()
 def soft_shutdown(target_time,tstate,cleanup = []):
     logger.warning("Soft Shutdown initiated. Either SIGINT or KeyboardInterrupt recieved")
@@ -90,57 +60,83 @@ def soft_shutdown(target_time,tstate,cleanup = []):
         del cleanup[i]
     
     logger.debug("Soft Shutdown complete. All processes should be terminated")
-    raise KeyboardInterrupt()
+    
 
-def main():   
-    from i24_logger.log_writer         import logger,catch_critical,log_warnings
-    logger.set_name("Tracking Main")
+if __name__ == "__main__":
+    ctx = mp.get_context('spawn')
+    
+    
+    import numpy as np
+    import torch
+    import os
+    import time
+    
+    from src.util.bbox                 import space_nms
+    from src.util.misc                 import plot_scene,colors,Timer
+    from i24_configparse               import parse_cfg
+    from src.track.tracker             import get_Tracker, get_Associator
+    from src.track.trackstate          import TrackState
+    from src.detect.pipeline           import get_Pipeline
+    from src.scene.devicemap           import get_DeviceMap
+    from src.scene.homography          import HomographyWrapper,Homography
+    from src.detect.devicebank         import DeviceBank
+    from src.load.gpu_load_multi       import MCLoader, ManagerClock
+    from src.db_write                  import WriteWrapper
+    
+    #from src.log_init                  import logger
+    #from i24_logger.log_writer         import logger,catch_critical,log_warnings
+    
+    
+    
+    #from src.load.cpu_load             import DummyNoiseLoader #,MCLoader
+    #from src.load.gpu_load             import MCLoader
+    
+    
     
     #%% Old run settings and setup
-    
-    # if False: 
-    #     run_config = "execute.config"       
-    #     #os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean"
-    #     #os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
-    #     in_dir = "/home/derek/Data/dataset_beta/sequence_1"
+    if False: 
+        run_config = "execute.config"       
+        #os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean"
+        #os.environ["TRACK_CONFIG_SECTION"] = "DEFAULT"
+        in_dir = "/home/derek/Data/dataset_beta/sequence_1"
         
         
-    #     # load parameters
-    #     params = parse_cfg("TRACK_CONFIG_SECTION",
-    #                         cfg_name=run_config, SCHEMA=False)
+        # load parameters
+        params = parse_cfg("TRACK_CONFIG_SECTION",
+                            cfg_name=run_config, SCHEMA=False)
         
-    #     # verify config notion of GPUs matches torch.cuda notion of available devices
-    #     # get available devices
+        # verify config notion of GPUs matches torch.cuda notion of available devices
+        # get available devices
         
-    #     # # initialize logger
-    #     # try:
-    #     #     log_params = {
-    #     #                 "log_name":"Tracking Session: {}".format(np.random.randint(0,1000000)),
-    #     #                 "processing_environment":os.environ["TRACK_CONFIG_SECTION"],
-    #     #                 "logstash_address":(params.log_host_ip,params.log_host_port),
-    #     #                 "connect_logstash": (True if "logstash" in params.log_mode else False),
-    #     #                 "connect_syslog":(True if "syslog" in params.log_mode else False),
-    #     #                 "connect_file": (True if "file" in params.log_mode else False),
-    #     #                 "connect_console":(True if "sysout" in params.log_mode else False),
-    #     #                 "console_log_level":params.log_level
-    #     #                 }
+        # # initialize logger
+        # try:
+        #     log_params = {
+        #                 "log_name":"Tracking Session: {}".format(np.random.randint(0,1000000)),
+        #                 "processing_environment":os.environ["TRACK_CONFIG_SECTION"],
+        #                 "logstash_address":(params.log_host_ip,params.log_host_port),
+        #                 "connect_logstash": (True if "logstash" in params.log_mode else False),
+        #                 "connect_syslog":(True if "syslog" in params.log_mode else False),
+        #                 "connect_file": (True if "file" in params.log_mode else False),
+        #                 "connect_console":(True if "sysout" in params.log_mode else False),
+        #                 "console_log_level":params.log_level
+        #                 }
             
-    #     #     logger = connect_automatically(user_settings = log_params)
-    #     #     logger.debug("Logger initialized with custom log settings",extra = log_params)
-    #     # except:
-    #     #     logger.debug("Logger initialized with default parameters")
+        #     logger = connect_automatically(user_settings = log_params)
+        #     logger.debug("Logger initialized with custom log settings",extra = log_params)
+        # except:
+        #     logger.debug("Logger initialized with default parameters")
         
         
         
-    #     # TODO fix this once you redo configparse
-    #     params.cuda_devices = [int(i) for i in range(int(params.cuda_devices))]
-    #     assert max(params.cuda_devices) < torch.cuda.device_count()
+        # TODO fix this once you redo configparse
+        params.cuda_devices = [int(i) for i in range(int(params.cuda_devices))]
+        assert max(params.cuda_devices) < torch.cuda.device_count()
         
-    #     # intialize DeviceMap
-    #     dmap = get_DeviceMap(params.device_map)
+        # intialize DeviceMap
+        dmap = get_DeviceMap(params.device_map)
     
-    #     from src.load.gpu_load             import MCLoader
-    #     loader = MCLoader(in_dir, dmap.camera_mapping_file, ctx)
+        from src.load.gpu_load             import MCLoader
+        loader = MCLoader(in_dir, dmap.camera_mapping_file, ctx)
     
     
     
@@ -185,14 +181,7 @@ def main():
     # intialize DeviceMap
     dmap = get_DeviceMap(params.device_map)
     
-    # intialize empty TrackState Object
-    tstate = TrackState()
-    target_time = None
-    
-    # load checkpoint
-    target_time,tstate = load_checkpoint(target_time,tstate)
-    
-    loader = MCLoader(in_dir, dmap.camera_mapping_file,dmap.cam_names, ctx,start_time = target_time)
+    loader = MCLoader(in_dir, dmap.camera_mapping_file,dmap.cam_names, ctx)
     
     logger.debug("Initialized {} loader processes.".format(len(loader.device_loaders)))
     
@@ -200,43 +189,40 @@ def main():
     
     # initialize Homography object
     hg = HomographyWrapper(hg1 = params.eb_homography_file,hg2 = params.wb_homography_file)
-     
-    if params.track:
-        # initialize pipelines
-        pipelines = params.pipelines
-        pipelines = [get_Pipeline(item, hg) for item in pipelines]
-        
-        associators = params.associators
-        associators = [get_Associator(item) for item in associators]
-        
-        # initialize tracker
-        tracker = get_Tracker(params.tracker)
-        
-        # add Associate function to each pipeline
-        # for i in range(len(pipelines)):
-        #     assoc = associators[i]
-        #     pipelines[i].associate = associators[i]
-        
-        # initialize DetectorBank
-        dbank = DeviceBank(params.cuda_devices, pipelines, dmap.gpu_cam_names, ctx)
-        
+    
+    # initialize pipelines
+    pipelines = params.pipelines
+    pipelines = [get_Pipeline(item, hg) for item in pipelines]
+    
+    associators = params.associators
+    associators = [get_Associator(item) for item in associators]
+    
+    # initialize tracker
+    tracker = get_Tracker(params.tracker)
+    
+    # add Associate function to each pipeline
+    # for i in range(len(pipelines)):
+    #     assoc = associators[i]
+    #     pipelines[i].associate = associators[i]
+    
+    # initialize DetectorBank
+    dbank = DeviceBank(params.cuda_devices, pipelines, dmap.gpu_cam_names, ctx)
+    
     # initialize DBWriter object
     if params.write_db:
         dbw = WriteWrapper()
-    else:
-        dbw = []
     
-
+    # intialize empty TrackState Object
+    tstate = TrackState()
     
     # get frames and timestamps
-    frames, timestamps = loader.get_frames(target_time = target_time)
+    frames, timestamps = loader.get_frames(target_time = None)
     
     # initialize processing sync clock
     start_ts = max(timestamps)
     nom_framerate = params.nominal_framerate 
     clock  = ManagerClock(start_ts,params.desired_processing_speed, nom_framerate)
     target_time = start_ts
-    
     
     # initial sync-up of all cameras
     # TODO - note this means we always skip at least one frame at the beginning of execution
@@ -268,7 +254,7 @@ def main():
         print("\n\nFrame:    Since Start:  Frame BPS:    Sync Timestamp:     Max ts Deviation:     Active Objects:    Written Objects:")
         while target_time < end_time:
             
-            if params.track: # shortout actual processing
+            if True: # shortout actual processing
                 
                 # select pipeline for this frame
                 tm.split("Predict")
@@ -374,7 +360,6 @@ def main():
                 logger.info("Tracking Status Log",extra = metrics)
                 logger.info("Time Utilization: {}".format(tm),extra = tm.bins())
                 
-            if frames_processed % 100 == 0:
                 checkpoint(target_time,tstate)
        
         
@@ -384,8 +369,6 @@ def main():
     except KeyboardInterrupt:
         logger.debug("Keyboard Interrupt recieved. Initializing soft shutdown")
         soft_shutdown(target_time, tstate,cleanup = [dbw,loader,dbank])
-     
         
-     
-if __name__ == "__main__":
-    main()
+    
+    	

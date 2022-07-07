@@ -208,32 +208,30 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time):
     gpuID = device
     device = torch.cuda.device("cuda:{}".format(gpuID))
     
-    last_file = ""
     
+    
+    # GET FIRST FILE
+    # sort directory files (by timestamp)
+    files = os.listdir(directory)
+    
+    # filter out non-video_files and sort video files
+    files = list(filter(  (lambda f: True if ".mkv" in f else False) ,   files))
+    files.sort()
+    
+    # select next file that comes sequentially after last_file
+    for fidx,file in enumerate(files):
+        try:
+            ftime = float(         file.split("_")[-1].split(".mkv")[0])
+            nftime= float(files[fidx+1].split("_")[-1].split(".mkv")[0])
+            if nftime >= start_time:
+                break
+        except:
+            break # no next file so this file should be the one
+    
+    logger.debug("Loading frames from {}".format(file))
+    last_file = file
     while True:
         
-        # sort directory files (by timestamp)
-        files = os.listdir(directory)
-        
-        # filter out non-video_files and sort video files
-        files = list(filter(  (lambda f: True if ".mkv" in f else False) ,   files))
-        files.sort()
-        
-        # select next file that comes sequentially after last_file
-        NEXTFILE = False
-        for file in files:
-            if file > last_file:
-                last_file = file
-                NEXTFILE = True
-                break
-           
-        logger.debug("Loading frames from {}".format(file))
-        
-        if not NEXTFILE:
-            raise Exception("Reached last file for directory {}".format(directory))
-            
-            # Derek TODO log no file message
-            
         file = os.path.join(directory,file)
         
         # initialize Decoder object
@@ -300,4 +298,25 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time):
                 frame = (surface_tensor,pkt.pts)
                 q.put(frame)
             
+        ### Get next file if there is one 
+        # sort directory files (by timestamp)
+        files = os.listdir(directory)
+        
+        # filter out non-video_files and sort video files
+        files = list(filter(  (lambda f: True if ".mkv" in f else False) ,   files))
+        files.sort()
+        
+        # select next file that comes sequentially after last_file
+        NEXTFILE = False
+        for file in files:
+            if file > last_file:
+                last_file = file
+                NEXTFILE = True           
+                logger.debug("Loading frames from {}".format(file))
+                break
+
+        
+        if not NEXTFILE:
+            logger.warning("Loader ran out of input.")
+            raise Exception("Reached last file for directory {}".format(directory))
             
