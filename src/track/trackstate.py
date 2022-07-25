@@ -159,6 +159,70 @@ class TrackState():
             self._update_history(id)
             
         
+class TrackierState(TrackState):
+    """
+    TrackierState object maintains the state of the tracking problem. This means storing:
+        a. the current state (in a filtering state formulation)
+        b. historical states of all active objects
+    TrackState objects deal with objects natively in a space-based representation, so 
+    object positions are expected in and are returned in state-space coordinates
+    
+    The following functions are implemented:
+        - __call__() wraps dict() or tensor() methods
+        - predict() - wrapper around KF predict function
+        - update() - wrapper areound KF update that also updates the stored history
+        - remove() - removes a set of objects and returns that set
+        - add() - adds a set of objects
+        
+    BUT WAIT, there's more! It also records the covariance diagonal for each object at each timestamp,
+    as well as the output detection confidence
+    """
+    
+    
+    def __init__(self):
+        super().__init__()
+           
+      
+    def _update_history(self,id):
+        time = self.kf.T[self.kf.obj_idxs[id]].item()
+        self._history[id].append((time,self.kf.X[self.kf.obj_idxs[id]],self.kf.P[self.kf.obj_idxs[id]].diag()))
+        
+    def remove(self,ids):
+        removals = {}
+        for id in ids:
+            # store history
+            datum = []
+            datum.append(self._history.pop(id))
+            datum.append(self.all_classes.pop(id))
+            datum.append(self.all_confs.pop(id))
+            removals[id] = datum
+        
+            del self.fsld[id]
+            
+        self.kf.remove(ids)
+        return removals
+    
+    
+    def update(self,detections,obj_ids,classes,confs,measurement_idx = 1,high_confidence_threshold = 0):
+        if len(obj_ids) > 0:
+            # update kf states
+            self.kf.update(detections,obj_ids,measurement_idx = measurement_idx)
+        
+        # increment all fslds - any obj with an update will have fsld overwritten next
+        for id in self.fsld.keys():
+            self.fsld[id] += 1 
+        
+        # update fsld, class, and conf
+        for i,id in enumerate(obj_ids):
+            self.all_classes[id][int(classes[i])] += 1
+            self.all_confs[id].append(confs[i])
+            
+            if confs[i] > high_confidence_threshold:
+                self.fsld[id] = 0
+                
+        # update stored history
+        for id in obj_ids:
+            self._update_history(id)
         
     
         

@@ -17,13 +17,13 @@ from src.util.bbox                 import space_nms
 from src.util.misc                 import plot_scene,colors,Timer
 from i24_configparse               import parse_cfg
 from src.track.tracker             import get_Tracker, get_Associator
-from src.track.trackstate          import TrackState
+from src.track.trackstate          import TrackierState as TrackState
 from src.detect.pipeline           import get_Pipeline
 from src.scene.devicemap           import get_DeviceMap
 from src.scene.homography          import HomographyWrapper,Homography
 from src.detect.devicebank         import DeviceBank
 from src.load.gpu_load_multi       import MCLoader, ManagerClock
-from src.db_write                  import WriteWrapper
+from src.db_write                  import WriteWrapperConf as WriteWrapper
 
 #from src.log_init                  import logger
 #from i24_logger.log_writer         import logger,catch_critical,log_warnings
@@ -32,6 +32,10 @@ from src.db_write                  import WriteWrapper
 
 #from src.load.cpu_load             import DummyNoiseLoader #,MCLoader
 #from src.load.gpu_load             import MCLoader
+
+os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval1"
+os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval1"
+
 
 @log_warnings()
 def parse_cfg_wrapper(run_config):
@@ -178,6 +182,8 @@ def main():
     # verify config notion of GPUs matches torch.cuda notion of available devices
     # get available devices
     
+    
+    
     # TODO fix this once you redo configparse
     params.cuda_devices = [int(i) for i in range(int(params.cuda_devices))]
     assert max(params.cuda_devices) < torch.cuda.device_count()
@@ -192,7 +198,14 @@ def main():
     # load checkpoint
     target_time,tstate = load_checkpoint(target_time,tstate)
     
-    loader = MCLoader(in_dir, dmap.camera_mapping_file,dmap.cam_names, ctx,start_time = target_time)
+    try:
+        ts_file = params.timestamp_file
+        from src.load.gpu_load_GT import MCLoader
+        loader = MCLoader(in_dir, ts_file, dmap.camera_mapping_file, ctx)
+        loader.get_frames(loader.start_timestamp)
+    except:
+        from src.load.gpu_load_multi       import MCLoader
+        loader = MCLoader(in_dir, dmap.camera_mapping_file,dmap.cam_names, ctx,start_time = target_time)
     
     logger.debug("Initialized {} loader processes.".format(len(loader.device_loaders)))
     
@@ -359,6 +372,9 @@ def main():
             # get next frames and timestamps
             tm.split("Get Frames")
             frames, timestamps = loader.get_frames(target_time)
+            if frames is None:
+                logger.warning("Ran out of input. Tracker is shutting down")
+                break #out of input
             ts_trunc = [item - start_ts for item in timestamps]
     
             if frames_processed % 20 == 1:
