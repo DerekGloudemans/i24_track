@@ -219,7 +219,7 @@ class RetinanetCropFramePipeline(DetectPipeline):
         
         # periodically log time utilization
         self.batches_processed += 1
-        if self.batches_processed %20 == 0:
+        if self.batches_processed %500 == 0:
             logger.info("Crop Pipeline Time Util: {}".format(self.tm),extra = self.tm.bins())
             
             

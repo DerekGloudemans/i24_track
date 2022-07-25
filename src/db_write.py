@@ -9,7 +9,7 @@ import numpy as np
 class WriteWrapper():
     
     @catch_critical()
-    def __init__(self,server_id = -1):
+    def __init__(self,collection_overwrite = None, server_id = -1):
     
         
     
@@ -34,6 +34,9 @@ class WriteWrapper():
         #                process_name       = "track"
         #                )
     
+        if collection_overwrite is not None:
+            self.raw_collection = collection_overwrite
+    
         param = {
           "default_host": self.host,
           "default_port": self.port,
@@ -48,8 +51,10 @@ class WriteWrapper():
           "process_name": "track"
         }
         
+        
+        
         self.dbw = DBWriter(param,collection_name = self.raw_collection)
-        logger.debug("Initialized log writer to Collection {} ({} existing records)".format(self.raw_collection,len(self)))
+        logger.debug("Initialized db writer to Collection {} ({} existing records)".format(self.raw_collection,len(self)))
         
         self.prev_len = len(self) -1
         self.prev_doc = None
@@ -120,8 +125,8 @@ class WriteWrapper():
                 
 class WriteWrapperConf(WriteWrapper):
     
-    def __init__(self,server_id=-1):
-        super().__init__()
+    def __init__(self, collection_overwrite = None, server_id=-1):
+        super().__init__(collection_overwrite = collection_overwrite, server_id = server_id)
     
     def insert(self,trajectories,time_offset = 0):
         """

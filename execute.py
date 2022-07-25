@@ -5,7 +5,6 @@ import _pickle as pickle
 from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
 
-ctx = mp.get_context('spawn')
 
 
 import numpy as np
@@ -46,7 +45,7 @@ def parse_cfg_wrapper(run_config):
 
 
 @catch_critical()
-def checkpoint(tstate,next_target_time,save_file = "working_checkpoint.cpkl"):
+def checkpoint(tstate,next_target_time,collection_overwrite,save_file = "working_checkpoint.cpkl"):
     """
     Saves the trackstate and next target_time as a pickled object such that the 
     state of tracker can be reloaded for no loss in tracking progress
@@ -57,12 +56,12 @@ def checkpoint(tstate,next_target_time,save_file = "working_checkpoint.cpkl"):
     """
     
     with open(save_file,"wb") as f:
-        pickle.dump([next_target_time,tstate],f)
+        pickle.dump([next_target_time,tstate,collection_overwrite],f)
     logger.debug("Checkpointed TrackState object, time:{}s".format(next_target_time))
 
         
 @catch_critical()
-def load_checkpoint(target_time,tstate,save_file = "working_checkpoint.cpkl"):
+def load_checkpoint(target_time,tstate,collection_overwrite,save_file = "working_checkpoint.cpkl"):
     """
     Loads the trackstate and next target_time from pickled object such that the 
     state of tracker can be reloaded for no loss in tracking progress. Requires 
@@ -72,23 +71,22 @@ def load_checkpoint(target_time,tstate,save_file = "working_checkpoint.cpkl"):
     :param   tstate - TrackState object
     :param   next_target_time - float
     :return  None
-    """
-        
+    """    
     if os.path.exists(save_file):
         with open(save_file,"rb") as f:
-            target_time,tstate = pickle.load(f)
+            target_time,tstate,collection_overwrite = pickle.load(f)
         
         logger.debug("Loaded checkpointed TrackState object, time:{}s".format(target_time))
         
     else:
         logger.debug("No checkpoint file exists, starting tracking from max min video timestamp")
         
-    return target_time,tstate
+    return target_time,tstate,collection_overwrite
         
 @catch_critical()
-def soft_shutdown(target_time,tstate,cleanup = []):
+def soft_shutdown(target_time,tstate,collection_overwrite,cleanup = []):
     logger.warning("Soft Shutdown initiated. Either SIGINT or KeyboardInterrupt recieved")
-    checkpoint(tstate,target_time,save_file = "working_checkpoint.cpkl")
+    checkpoint(tstate,target_time,collection_overwrite,save_file = "working_checkpoint.cpkl")
     
     for i in range(len(cleanup)-1,-1,-1):
         del cleanup[i]
@@ -96,7 +94,10 @@ def soft_shutdown(target_time,tstate,cleanup = []):
     logger.debug("Soft Shutdown complete. All processes should be terminated")
     raise KeyboardInterrupt()
 
-def main():   
+def main(collection_overwrite = None):   
+    
+    ctx = mp.get_context('spawn')
+    
     from i24_logger.log_writer         import logger,catch_critical,log_warnings
     logger.set_name("Tracking Main")
     
@@ -196,7 +197,7 @@ def main():
     target_time = None
     
     # load checkpoint
-    target_time,tstate = load_checkpoint(target_time,tstate)
+    target_time,tstate,collection_overwrite = load_checkpoint(target_time,tstate,collection_overwrite)
     
     try:
         ts_file = params.timestamp_file
@@ -235,7 +236,7 @@ def main():
         
     # initialize DBWriter object
     if params.write_db:
-        dbw = WriteWrapper()
+        dbw = WriteWrapper(collection_overwrite = collection_overwrite)
     else:
         dbw = []
     
@@ -377,7 +378,7 @@ def main():
                 break #out of input
             ts_trunc = [item - start_ts for item in timestamps]
     
-            if frames_processed % 20 == 1:
+            if frames_processed % 200 == 1:
                 metrics = {
                     "frame bps": fps,
                     "frame batches processed":frames_processed,
@@ -390,18 +391,19 @@ def main():
                 logger.info("Tracking Status Log",extra = metrics)
                 logger.info("Time Utilization: {}".format(tm),extra = tm.bins())
                 
-            if frames_processed % 100 == 0:
-                checkpoint(target_time,tstate)
+            if frames_processed % 500 == 0:
+                checkpoint(target_time,tstate,collection_overwrite)
        
         
-        checkpoint(tstate, target_time)
+        checkpoint(target_time,tstate,collection_overwrite)
         logger.info("Finished tracking over input time range. Shutting down.")
         
     except KeyboardInterrupt:
         logger.debug("Keyboard Interrupt recieved. Initializing soft shutdown")
-        soft_shutdown(target_time, tstate,cleanup = [dbw,loader,dbank])
+        soft_shutdown(target_time, tstate,collection_overwrite,cleanup = [dbw,loader,dbank])
      
         
      
 if __name__ == "__main__":
+    
     main()
