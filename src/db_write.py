@@ -128,10 +128,11 @@ class WriteWrapperConf(WriteWrapper):
     def __init__(self, collection_overwrite = None, server_id=-1):
         super().__init__(collection_overwrite = collection_overwrite, server_id = server_id)
     
-    def insert(self,trajectories,time_offset = 0):
+    def insert(self,trajectories,cause_of_death = None,time_offset = 0):
         """
         Converts trajectories as dequeued from TrackState into document form and inserts with dbw
         trajectories - output from TrackState.remove()
+        cause_of_death - list of str of same length as trajectories
         """
         
         if len(trajectories) == 0:
@@ -185,6 +186,8 @@ class WriteWrapperConf(WriteWrapper):
             doc["detection_confidence"]    = confs
             doc["variance"]                = covariance
             
+            if cause_of_death is not None:
+                doc["flags"]                   = [cause_of_death[id]]
             
             # insert
             if len(x) > self.min_document_length:

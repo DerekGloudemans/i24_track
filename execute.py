@@ -247,6 +247,8 @@ def main(collection_overwrite = None):
     
     # initialize processing sync clock
     start_ts = max(timestamps)
+
+        
     nom_framerate = params.nominal_framerate 
     clock  = ManagerClock(start_ts,params.desired_processing_speed, nom_framerate)
     target_time = start_ts
@@ -281,6 +283,9 @@ def main(collection_overwrite = None):
     try:
         print("\n\nFrame:    Since Start:  Frame BPS:    Sync Timestamp:     Max ts Deviation:     Active Objects:    Written Objects:")
         while target_time < end_time:
+                
+            frames_processed += 1
+
             
             if params.track: # shortout actual processing
                 
@@ -289,67 +294,72 @@ def main(collection_overwrite = None):
                 pidx = frames_processed % len(params.pipeline_pattern)
                 pipeline_idx = params.pipeline_pattern[pidx]
         
-                camera_idxs, device_idxs, obj_times = dmap(tstate, ts_trunc)
-                obj_ids, priors, selected_obj_idxs = tracker.preprocess(
-                    tstate, obj_times)
+               
         
-                # slice only objects we care to pass to DeviceBank on this set of frames
-                # DEREK NOTE may run into trouble here since dmap and preprocess implicitly relies on the list ordering of tstate
-                if len(obj_ids) > 0:
-                    obj_ids     =     obj_ids[selected_obj_idxs]
-                    priors      =      priors[selected_obj_idxs,:]
-                    device_idxs = device_idxs[selected_obj_idxs]
-                    camera_idxs = camera_idxs[selected_obj_idxs]
-                
-                # prep input stack by grouping priors by gpu
-                tm.split("Map")
-                cam_idx_names = None  # map idxs to names here
-                prior_stack = dmap.route_objects(
-                    obj_ids, priors, device_idxs, camera_idxs, run_device_ids=params.cuda_devices)
+
         
-                # test on a single on-process pipeline
-                # pipelines[pipeline_idx].set_device(0)
-                # pipelines[pipeline_idx].set_cam_names(dmap.gpu_cam_names[0])
-                # test = pipelines[pipeline_idx](frames[0],prior_stack[0])
-        
-        
-                # TODO - full frame detections should probably get full set of objects?
-                # TODO select correct pipeline based on pipeline pattern logic parameter
-                tm.split("Detect {}".format(pipeline_idx),SYNC = True)
-                detections, confs, classes, detection_cam_names, associations = dbank(
-                    prior_stack, frames, pipeline_idx=pipeline_idx)
+                if pipeline_idx != -1: # -1 means skip frame
                 
-                # THIS MAY BE SLOW SINCE ITS DOUBLE INDEXING
-                detection_times = torch.tensor(
-                    [ts_trunc[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
+                    camera_idxs, device_idxs, obj_times = dmap(tstate, ts_trunc)
+                    obj_ids, priors, selected_obj_idxs = tracker.preprocess(
+                        tstate, obj_times)
                 
-                
-                
-                tm.split("Associate",SYNC = True)
-                if pipeline_idx == 0:
-                    detections_orig = detections.clone()
-                    if True and len(detections) > 0:
-                        # do nms across all device batches to remove dups
-                        space_new = hg.state_to_space(detections)
-                        keep = space_nms(space_new,confs)
-                        detections = detections[keep,:]
-                        classes = classes[keep]
-                        confs = confs[keep]
-                        detection_times = detection_times[keep]
+                    # slice only objects we care to pass to DeviceBank on this set of frames
+                    # DEREK NOTE may run into trouble here since dmap and preprocess implicitly relies on the list ordering of tstate
+                    if len(obj_ids) > 0:
+                        obj_ids     =     obj_ids[selected_obj_idxs]
+                        priors      =      priors[selected_obj_idxs,:]
+                        device_idxs = device_idxs[selected_obj_idxs]
+                        camera_idxs = camera_idxs[selected_obj_idxs]
                     
-                    # overwrite associations here
-                    associations = associators[0](obj_ids,priors,detections,hg)
+                    # prep input stack by grouping priors by gpu
+                    tm.split("Map")
+                    cam_idx_names = None  # map idxs to names here
+                    prior_stack = dmap.route_objects(
+                        obj_ids, priors, device_idxs, camera_idxs, run_device_ids=params.cuda_devices)
+            
+                    # test on a single on-process pipeline
+                    # pipelines[pipeline_idx].set_device(0)
+                    # pipelines[pipeline_idx].set_cam_names(dmap.gpu_cam_names[0])
+                    # test = pipelines[pipeline_idx](frames[0],prior_stack[0])
+            
+            
+                    # TODO - full frame detections should probably get full set of objects?
+                    # TODO select correct pipeline based on pipeline pattern logic parameter
+                    tm.split("Detect {}".format(pipeline_idx),SYNC = True)
+                    detections, confs, classes, detection_cam_names, associations = dbank(
+                        prior_stack, frames, pipeline_idx=pipeline_idx)
+                    
+                    # THIS MAY BE SLOW SINCE ITS DOUBLE INDEXING
+                    detection_times = torch.tensor(
+                        [ts_trunc[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
+                    
+                    
+                    
+                    tm.split("Associate",SYNC = True)
+                    if pipeline_idx == 0:
+                        detections_orig = detections.clone()
+                        if True and len(detections) > 0:
+                            # do nms across all device batches to remove dups
+                            space_new = hg.state_to_space(detections)
+                            keep = space_nms(space_new,confs)
+                            detections = detections[keep,:]
+                            classes = classes[keep]
+                            confs = confs[keep]
+                            detection_times = detection_times[keep]
+                        
+                        # overwrite associations here
+                        associations = associators[0](obj_ids,priors,detections,hg)
+            
+                    tm.split("Postprocess")
+                    terminated_objects,cause_of_death = tracker.postprocess(
+                        detections, detection_times, classes, confs, associations, tstate, hg = hg,measurement_idx =0)
+                    term_objects += len(terminated_objects)
         
-                tm.split("Postprocess")
-                terminated_objects = tracker.postprocess(
-                    detections, detection_times, classes, confs, associations, tstate, hg = hg,measurement_idx =0)
-                term_objects += len(terminated_objects)
-    
-                if params.write_db:
-                    dbw.insert(terminated_objects,time_offset = start_ts)
-                #print("Active Trajectories: {}  Terminated Trajectories: {}   Documents in database: {}".format(len(tstate),len(terminated_objects),len(dbw)))
-    
-            frames_processed += 1
+                    if params.write_db:
+                        dbw.insert(terminated_objects,cause_of_death = cause_of_death,time_offset = start_ts)
+                    #print("Active Trajectories: {}  Terminated Trajectories: {}   Documents in database: {}".format(len(tstate),len(terminated_objects),len(dbw)))
+        
     
             # optionally, plot outputs
             if params.plot:
@@ -398,10 +408,18 @@ def main(collection_overwrite = None):
         checkpoint(target_time,tstate,collection_overwrite)
         logger.info("Finished tracking over input time range. Shutting down.")
         
+        if True: # Flush tracker objects
+            residual_objects,COD = tracker.flush(tstate)
+            dbw.insert(residual_objects,cause_of_death = COD,time_offset = start_ts)
+            logger.info("Flushed all active objects to database",extra = metrics)
+
+        
     except KeyboardInterrupt:
         logger.debug("Keyboard Interrupt recieved. Initializing soft shutdown")
         soft_shutdown(target_time, tstate,collection_overwrite,cleanup = [dbw,loader,dbank])
      
+    
+    return fps
         
      
 if __name__ == "__main__":

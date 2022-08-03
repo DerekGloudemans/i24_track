@@ -340,6 +340,14 @@ class BaseTracker():
         stale_objects = tstate.remove(removals)
         return stale_objects
     
+    def flush(self,tstate):
+        """
+        Removes all objects from tracker
+        """
+        ids,states = tstate()
+        stale_objects = tstate.remove(ids)
+        return stale_objects
+    
  
 class SmartTracker(BaseTracker):
     
@@ -421,8 +429,25 @@ class SmartTracker(BaseTracker):
         return stale_objects
             
     def remove(self,tstate,hg = None):
-        
             
+            out_objs = {}
+            COD = {}
+            
+            
+            # 5. Remove lost objects (too many frames since last detected)    
+            if self.fsld_max != -1:
+                removals = []
+                ids,states = tstate()  
+                for i in range(len(ids)):
+                    id = ids[i].item()
+                    if tstate.fsld[id] > self.fsld_max:
+                        removals.append(id)
+                if len(removals) > 0:
+                    objs = tstate.remove(removals)
+                    for key in objs.keys():
+                        out_objs[key] = objs[key] 
+                        COD[key] = "Lost"
+                    
             # 1. do nms on all objects to remove overlaps, where score = # of frames since initialized
             if  hg is not None:
                 ids,states = tstate()
@@ -436,9 +461,11 @@ class SmartTracker(BaseTracker):
                 for id in keep_ids:
                     removals.remove(id)
                 
-                tstate.remove(removals)
-
-                
+                objs = tstate.remove(removals)
+                for key in objs.keys():
+                    out_objs[key] = objs[key] 
+                    COD[key] = "Overlap"
+                    
             # 2. Remove anomalies
             ids,states = tstate()
             removals = []
@@ -447,7 +474,10 @@ class SmartTracker(BaseTracker):
                     if states[i,j] < self.state_bounds[2*j] or states[i,j] > self.state_bounds[2*j+1]:
                         removals.append(ids[i].item())
                         break
-            tstate.remove(removals)
+            objs = tstate.remove(removals)
+            for key in objs.keys():
+                out_objs[key] = objs[key] 
+                COD[key] = "Anomalous state"
 
             
             # 3. Remove objects that don't have enough high confidence detections
@@ -460,8 +490,10 @@ class SmartTracker(BaseTracker):
                         if conf < self.sigma_high:
                             removals.append(id)
                             break
-            tstate.remove(removals)
-
+            objs = tstate.remove(removals)
+            for key in objs.keys():
+                out_objs[key] = objs[key] 
+                COD[key] = "Low confidence"
 
             # 4. Pop objects that are out of FOV
             removals = []
@@ -471,6 +503,23 @@ class SmartTracker(BaseTracker):
                 if tstate.fsld[id] > self.fsld_max or states[i][0] < self.fov[0] or states[i][0] > self.fov[1]:
                     removals.append(id)
                     
-            stale_objects = tstate.remove(removals)
-
-            return stale_objects
+            objs = tstate.remove(removals)
+            for key in objs.keys():
+                out_objs[key] = objs[key] 
+                COD[key] = "Exit FOV"
+                
+           
+            
+            return out_objs,COD
+        
+    def flush(self,tstate):
+        """
+        Removes all objects from tracker
+        """
+        COD = {}
+        ids,states = tstate()
+        ids = [id.item() for id in ids]
+        stale_objects = tstate.remove(ids)
+        for id in ids:
+            COD[id] = "Active at End"
+        return stale_objects, COD
