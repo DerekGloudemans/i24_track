@@ -38,6 +38,20 @@ adj_list = ["admissible",
             "quizzical",
             "pragmatic",
             "sibilant",
+            "staunch",
+            "sophistic",
+            "condescending",
+            "sanctimonious",
+            "introspective",
+            "existentialist",
+            "inductive",
+            "fastidious",
+            "sympathetic",
+            "denatured",
+            "enigmatic",
+            "prosaic",
+            "trivial",
+            "bistable",
             "visionary",
             "morose",
             "jubilant",
@@ -45,7 +59,6 @@ adj_list = ["admissible",
             "stalwart",
             "paradoxical",
             "transcendent",
-            
             "tantalizing",
             "specious",
             "tautological",
@@ -65,7 +78,7 @@ noun_list = ["anteater",
              "stork",
              "cyborg",
              "vulcan",
-             "snek",
+             "serpent",
              "beluga",
              "panda",
              "lynx",
@@ -74,6 +87,11 @@ noun_list = ["anteater",
              "osprey",
              "bovine",
              "jackalope",
+             "lockness",
+             "hippo",
+             "stallion",
+             "triceratops",
+             "trex",
              "yeti",
              "doggo",
              "cheetah",
@@ -110,7 +128,7 @@ if __name__ == "__main__":
     TAG = "GT1" 
     n_GPUs = 4
     n_cameras = 17
-    
+        
     ### overwrite collection_name 
     #coll_name = "morose_panda--RAW_GT1"
     
@@ -178,5 +196,13 @@ if __name__ == "__main__":
     with open(save_name, 'wb') as f:
         pickle.dump(result, f)
 
-    # ### clean up
-    # if collection_cleanup: db_cleanup(dbw,coll_name)
+    time.sleep(15)
+
+    os.chdir("../I24_postprocessing")
+    from postprocess import main as postprocess_main
+    postprocess_main(collection_name = coll_name)
+    
+    
+    os.chdir("../trajectory-eval-toolkit")
+    from evaluate import main as evaluate_main
+    evaluate_main()

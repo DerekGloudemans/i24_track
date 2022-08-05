@@ -256,8 +256,8 @@ def main(collection_overwrite = None):
     
     # initial sync-up of all cameras
     # TODO - note this means we always skip at least one frame at the beginning of execution
-    frames,timestamps = loader.get_frames(target_time)
-    ts_trunc = [item - start_ts for item in timestamps]
+    # frames,timestamps = loader.get_frames(target_time)
+    # ts_trunc = [item - start_ts for item in timestamps]
     
     frames_processed = 0
     term_objects = 0
@@ -284,26 +284,30 @@ def main(collection_overwrite = None):
         print("\n\nFrame:    Since Start:  Frame BPS:    Sync Timestamp:     Max ts Deviation:     Active Objects:    Written Objects:")
         while target_time < end_time:
                 
-            frames_processed += 1
 
             
             if params.track: # shortout actual processing
                 
                 # select pipeline for this frame
-                tm.split("Predict")
                 pidx = frames_processed % len(params.pipeline_pattern)
                 pipeline_idx = params.pipeline_pattern[pidx]
         
-               
-        
-
         
                 if pipeline_idx != -1: # -1 means skip frame
                 
+                    # get next frames and timestamps
+                    tm.split("Get Frames")
+                    frames, timestamps = loader.get_frames(target_time)
+                    if frames is None:
+                        logger.warning("Ran out of input. Tracker is shutting down")
+                        break #out of input
+                    ts_trunc = [item - start_ts for item in timestamps]
+                
+                    tm.split("Predict")
                     camera_idxs, device_idxs, obj_times = dmap(tstate, ts_trunc)
                     obj_ids, priors, selected_obj_idxs = tracker.preprocess(
                         tstate, obj_times)
-                
+                    
                     # slice only objects we care to pass to DeviceBank on this set of frames
                     # DEREK NOTE may run into trouble here since dmap and preprocess implicitly relies on the list ordering of tstate
                     if len(obj_ids) > 0:
@@ -379,14 +383,8 @@ def main(collection_overwrite = None):
         
             # get next target time
             target_time = clock.tick(timestamps)
+            frames_processed += 1
             
-            # get next frames and timestamps
-            tm.split("Get Frames")
-            frames, timestamps = loader.get_frames(target_time)
-            if frames is None:
-                logger.warning("Ran out of input. Tracker is shutting down")
-                break #out of input
-            ts_trunc = [item - start_ts for item in timestamps]
     
             if frames_processed % 200 == 1:
                 metrics = {

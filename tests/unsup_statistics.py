@@ -26,9 +26,9 @@ TODO
 1. make traj_eval faster using MongoDB projection instead of python
 """
 
-from i24_database_api.db_reader import DBReader
+from i24_database_api.db_reader import DBClient
 from i24_database_api.db_writer import DBWriter
-from i24_database_api import transform
+from i24_database_api import trans_run
 
 import matplotlib.pyplot as plt
 import warnings
