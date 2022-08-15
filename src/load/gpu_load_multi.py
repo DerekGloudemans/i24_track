@@ -32,7 +32,9 @@ class ManagerClock:
         self.start_ts = start_ts
         self.start_t = time.time()
         
-    def tick(self,ts):
+        self.target_time = self.start_ts
+        
+    def tick(self):
         """
         Returns the later of:
             1. max ts from previous camera timestamps + framerate
@@ -45,19 +47,17 @@ class ManagerClock:
         #     flat_ts += item
         # max_ts = max(flat_ts)
         
-        max_ts = max(ts)
+        #max_ts = max(ts)
         
-        target_ts_1 = max_ts + 1.0/self.framerate
+        target_ts_1 = self.target_time + 1.0/self.framerate
         
         
         elapsed_proc_time = time.time() - self.start_t
-        
         target_ts_2 = self.start_ts + elapsed_proc_time*self.dps
         
-        
-        target_ts = max(target_ts_1,target_ts_2)
-        return target_ts
-
+        self.target_time = max(target_ts_1,target_ts_2)
+        return self.target_time
+    
 class MCLoader():
     """
     Loads multiple video files in parallel with PTS timestamp decoding and 

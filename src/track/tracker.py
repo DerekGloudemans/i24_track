@@ -467,17 +467,17 @@ class SmartTracker(BaseTracker):
                     COD[key] = "Overlap"
                     
             # 2. Remove anomalies
-            ids,states = tstate()
-            removals = []
-            for i in range(len(ids)):
-                for j in range(5):
-                    if states[i,j] < self.state_bounds[2*j] or states[i,j] > self.state_bounds[2*j+1]:
-                        removals.append(ids[i].item())
-                        break
-            objs = tstate.remove(removals)
-            for key in objs.keys():
-                out_objs[key] = objs[key] 
-                COD[key] = "Anomalous state"
+            # ids,states = tstate()
+            # removals = []
+            # for i in range(len(ids)):
+            #     for j in range(5):
+            #         if states[i,j] < self.state_bounds[2*j] or states[i,j] > self.state_bounds[2*j+1]:
+            #             removals.append(ids[i].item())
+            #             break
+            # objs = tstate.remove(removals)
+            # for key in objs.keys():
+            #     out_objs[key] = objs[key] 
+            #     COD[key] = "Anomalous state"
 
             
             # 3. Remove objects that don't have enough high confidence detections

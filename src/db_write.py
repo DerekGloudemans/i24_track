@@ -85,13 +85,15 @@ class WriteWrapper():
             history = trajectory[0]
             cls_data = trajectory[1]
             
+            
             cls = int(np.argmax(cls_data))
+            direction = -1 if y[0] > 60 else 1
             timestamps = [item[0] + time_offset for item in history]
-            x = [item[1][0].item() for item in history]
-            y = [item[1][1].item() for item in history]
-            l = [item[1][2].item() for item in history]
-            w = [item[1][3].item() for item in history]
-            h = [item[1][4].item() for item in history]
+            x = [item[1][0].item()  for item in history]
+            y = [item[1][1].item()  for item in history]
+            l = [item[1][2].item()  for item in history]
+            w = [item[1][3].item()  for item in history]
+            h = [item[1][4].item()  for item in history]
     
             # convert to document form
             doc = {}
@@ -114,7 +116,7 @@ class WriteWrapper():
             doc["length"]                  = l
             doc["width"]                   = w
             doc["height"]                  = h
-            doc["direction"]               = -1 if y[0] > 60 else 1
+            doc["direction"]               = direction
             
             
             
@@ -123,10 +125,61 @@ class WriteWrapper():
             if len(x) > self.min_document_length:
                 self.dbw.write_one_trajectory(**doc) 
                 
-class WriteWrapperConf(WriteWrapper):
+class WriteWrapperConf():
     
-    def __init__(self, collection_overwrite = None, server_id=-1):
-        super().__init__(collection_overwrite = collection_overwrite, server_id = server_id)
+    def __init__(self,collection_overwrite = None, server_id = -1):
+    
+        
+        self.SESSION_CONFIG_ID = -1 #os.environ["TRACK_CONFIG_SECTION"]
+        self.PID = os.getpid()
+        self.COMPUTE_NODE_ID = server_id 
+        
+        self = parse_cfg("TRACK_CONFIG_SECTION",obj=self)    
+    
+        
+        # self.dbw = DBWriter(
+        #                host               = self.host, 
+        #                port               = self.port, 
+        #                username           = self.username, 
+        #                password           = self.password,
+        #                database_name      = self.db_name, 
+        #                schema_file        = self.schema_file,
+        #                collection_name    = self.raw_collection,
+        #                server_id          = self.COMPUTE_NODE_ID, 
+        #                session_config_id  = self.SESSION_CONFIG_ID,
+        #                process_id         = self.PID,
+        #                process_name       = "track"
+        #                )
+    
+        if collection_overwrite is not None:
+            self.raw_collection = collection_overwrite
+    
+        param = {
+          "default_host": self.host,
+          "default_port": self.port,
+          "default_username": self.username,
+          "readonly_user":self.username,
+          "default_password": self.password,
+          "db_name": self.db_name,
+          "collection_name":self.raw_collection,
+          "schema_file": self.schema_file,
+          "server_id": self.COMPUTE_NODE_ID, 
+          "session_config_id": self.SESSION_CONFIG_ID,
+          "process_name": "track"
+        }
+        
+        
+        
+        self.dbw = DBWriter(param,collection_name = self.raw_collection,schema_file = self.schema_file)
+        #logger.debug("Initialized db writer to Collection {} ({} existing records)".format(self.raw_collection,len(self)))
+        
+        self.prev_len = len(self) -1
+        self.prev_doc = None
+        
+    
+    @catch_critical()
+    def __len__(self):
+        return self.dbw.collection.count_documents({})
     
     def insert(self,trajectories,cause_of_death = None,time_offset = 0):
         """
@@ -142,6 +195,8 @@ class WriteWrapperConf(WriteWrapper):
         # if cur_len == self.prev_len:
         #     logger.warning("\n Document {} was not correctly inserted into database collection {}".format(self.prev_doc,self.raw_collection))
         # self.prev_len = cur_len
+        bias = np.array([0, -0.2, -1.5, -0.4, 0.3]) 
+        ts_bias = -0.0285 #-0.0333
         
         for id in trajectories.keys():
             trajectory = trajectories[id]
@@ -149,16 +204,20 @@ class WriteWrapperConf(WriteWrapper):
             cls_data = trajectory[1]
             conf_data = trajectory[2]
             
+            direction = - 1 if history[0][1][1].item() > 60 else 1
+            
             cls = int(np.argmax(cls_data))
-            timestamps = [item[0] + time_offset for item in history]
-            x = [item[1][0].item() for item in history]
-            y = [item[1][1].item() for item in history]
-            l = [item[1][2].item() for item in history]
-            w = [item[1][3].item() for item in history]
-            h = [item[1][4].item() for item in history]
+            timestamps = [item[0] + time_offset + ts_bias for item in history]
+            x = [item[1][0].item() + (bias [0]*direction) for item in history]
+            y = [item[1][1].item() + bias [1] for item in history]
+            l = [item[1][2].item() + bias [2] for item in history]
+            w = [item[1][3].item() + bias [3] for item in history]
+            h = [item[1][4].item() + bias [4] for item in history]
             
-            covariance = (np.stack([item[2].data.numpy() for item in history])[:,:5]).tolist()
-            
+            posterior_covariance = (np.stack([item[2].data.numpy() for item in history])[:,:5]).tolist()
+            detections = (np.stack([item[3].data.numpy() for item in history])[:,:5]).tolist()
+            prior_covariance = (np.stack([item[4].data.numpy() for item in history])[:,:5]).tolist()
+            prior = (np.stack([item[5].data.numpy() for item in history])[:,:5]).tolist()
             confs = [conf.item() for conf in conf_data]
             
             # convert to document form
@@ -182,9 +241,12 @@ class WriteWrapperConf(WriteWrapper):
             doc["length"]                  = l
             doc["width"]                   = w
             doc["height"]                  = h
-            doc["direction"]               = -1 if y[0] > 60 else 1
+            doc["direction"]               = direction
             doc["detection_confidence"]    = confs
-            doc["variance"]                = covariance
+            doc["posterior_covariance"]    = posterior_covariance
+            doc["detection"]               = detections
+            doc["prior_covariance"]        = prior_covariance
+            doc["prior"]                   = prior
             
             if cause_of_death is not None:
                 doc["flags"]                   = [cause_of_death[id]]
@@ -195,4 +257,4 @@ class WriteWrapperConf(WriteWrapper):
 
             
 if __name__ == "__main__":
-    test = WriteWrapper()
+    test = WriteWrapperConf()

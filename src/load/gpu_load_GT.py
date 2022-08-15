@@ -127,7 +127,7 @@ class MCLoader():
             return None, None
     
 class GPUBackendFrameGetter:
-    def __init__(self,file,device,ctx,buffer_size = 5,resize = (1920,1080)):
+    def __init__(self,file,device,ctx,buffer_size = 20,resize = (1920,1080)):
         
         # create shared queue
         self.queue = ctx.Queue()

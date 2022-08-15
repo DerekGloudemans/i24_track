@@ -1,4 +1,3 @@
-
 from execute import main
 from src.scene.homography           import HomographyWrapper,Homography
 
@@ -40,6 +39,9 @@ adj_list = ["admissible",
             "sibilant",
             "staunch",
             "sophistic",
+            "deterministic",
+            "stochastic",
+            "auspicious",
             "condescending",
             "sanctimonious",
             "introspective",
@@ -144,7 +146,7 @@ if __name__ == "__main__":
 
     dbw   = DBWriter(db_param,collection_name = db_param["db_name"])
     existing_collections = [col["name"] for col in list(dbw.db.list_collections())] # list all collections
-    print(existing_collections)
+    #print(existing_collections)
     
     
     bps = -1

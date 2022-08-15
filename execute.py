@@ -1,16 +1,19 @@
 import torch.multiprocessing as mp
 import socket
 import _pickle as pickle
+import numpy as np
+import torch
+import os,shutil
+import time
+
+os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval1"
+os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval1"
 
 from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
+#mp.set_sharing_strategy('file_system')
 
 
-
-import numpy as np
-import torch
-import os
-import time
 
 from src.util.bbox                 import space_nms
 from src.util.misc                 import plot_scene,colors,Timer
@@ -32,8 +35,7 @@ from src.db_write                  import WriteWrapperConf as WriteWrapper
 #from src.load.cpu_load             import DummyNoiseLoader #,MCLoader
 #from src.load.gpu_load             import MCLoader
 
-os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval1"
-os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval1"
+
 
 
 @log_warnings()
@@ -94,8 +96,11 @@ def soft_shutdown(target_time,tstate,collection_overwrite,cleanup = []):
     logger.debug("Soft Shutdown complete. All processes should be terminated")
     raise KeyboardInterrupt()
 
-def main(collection_overwrite = None):   
+def main(collection_overwrite = None):  
     
+    
+        
+        
     ctx = mp.get_context('spawn')
     
     from i24_logger.log_writer         import logger,catch_critical,log_warnings
@@ -201,12 +206,14 @@ def main(collection_overwrite = None):
     
     try:
         ts_file = params.timestamp_file
-        from src.load.gpu_load_GT import MCLoader
-        loader = MCLoader(in_dir, ts_file, dmap.camera_mapping_file, ctx)
-        loader.get_frames(loader.start_timestamp)
+        from src.load.gpu_load_GT_presynced import MCLoader
+        loader = MCLoader(in_dir, ts_file, dmap.camera_mapping_file, ctx,Hz = params.nominal_framerate)
+        loader.get_frames()
+        print("Using GT Loader")
     except:
         from src.load.gpu_load_multi       import MCLoader
         loader = MCLoader(in_dir, dmap.camera_mapping_file,dmap.cam_names, ctx,start_time = target_time)
+        print("Using Multi Loader")
     
     logger.debug("Initialized {} loader processes.".format(len(loader.device_loaders)))
     
@@ -252,6 +259,7 @@ def main(collection_overwrite = None):
     nom_framerate = params.nominal_framerate 
     clock  = ManagerClock(start_ts,params.desired_processing_speed, nom_framerate)
     target_time = start_ts
+    target_time = clock.tick()
     
     
     # initial sync-up of all cameras
@@ -262,10 +270,10 @@ def main(collection_overwrite = None):
     frames_processed = 0
     term_objects = 0
     
-    # plot first frame
-    if params.plot:
-        plot_scene(tstate, frames, ts_trunc, dmap.gpu_cam_names,
-             hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed,detections = None)
+    # # plot first frame
+    # if params.plot:
+    #     plot_scene(tstate, frames, ts_trunc, dmap.gpu_cam_names,
+    #          hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed,detections = None)
     
     
     
@@ -292,17 +300,18 @@ def main(collection_overwrite = None):
                 pidx = frames_processed % len(params.pipeline_pattern)
                 pipeline_idx = params.pipeline_pattern[pidx]
         
-        
                 if pipeline_idx != -1: # -1 means skip frame
-                
+                    
                     # get next frames and timestamps
                     tm.split("Get Frames")
                     frames, timestamps = loader.get_frames(target_time)
+                    #print(frames_processed,timestamps[0],target_time) # now we expect almost an exactly 30 fps framerate and exactly 30 fps target framerate
+                    
                     if frames is None:
                         logger.warning("Ran out of input. Tracker is shutting down")
                         break #out of input
                     ts_trunc = [item - start_ts for item in timestamps]
-                
+                    
                     tm.split("Predict")
                     camera_idxs, device_idxs, obj_times = dmap(tstate, ts_trunc)
                     obj_ids, priors, selected_obj_idxs = tracker.preprocess(
@@ -338,8 +347,6 @@ def main(collection_overwrite = None):
                     detection_times = torch.tensor(
                         [ts_trunc[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
                     
-                    
-                    
                     tm.split("Associate",SYNC = True)
                     if pipeline_idx == 0:
                         detections_orig = detections.clone()
@@ -360,6 +367,7 @@ def main(collection_overwrite = None):
                         detections, detection_times, classes, confs, associations, tstate, hg = hg,measurement_idx =0)
                     term_objects += len(terminated_objects)
         
+                    tm.split("Write DB")
                     if params.write_db:
                         dbw.insert(terminated_objects,cause_of_death = cause_of_death,time_offset = start_ts)
                     #print("Active Trajectories: {}  Terminated Trajectories: {}   Documents in database: {}".format(len(tstate),len(terminated_objects),len(dbw)))
@@ -370,23 +378,33 @@ def main(collection_overwrite = None):
                 tm.split("Plot")
                 detections = None
                 priors = None
-                plot_scene(tstate, frames, ts_trunc, dmap.gpu_cam_names,
-                     hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed,detections = detections,priors = priors)
+                plot_scene(tstate, 
+                           frames, 
+                           ts_trunc, 
+                           dmap.gpu_cam_names,
+                           hg, 
+                           colors,
+                           extents=dmap.cam_extents_dict, 
+                           mask=mask,
+                           fr_num = frames_processed,
+                           detections = detections,
+                           priors = priors,
+                           save_crops_dir="./data/crops_temp")
     
             
             # text readout update
             tm.split("Bookkeeping")
-            fps = frames_processed/(time.time() - start_time)
-            dev = [np.abs(t-target_time) for t in timestamps]
-            max_dev = max(dev)
-            print("\r{}        {:.3f}s       {:.2f}        {:.3f}              {:.3f}                {}               {}".format(frames_processed, time.time() - start_time,fps,target_time, max_dev, len(tstate), len(dbw)), end='\r', flush=True)
+            fps = (max(timestamps) - start_ts)/(time.time() - start_time) * 30
+            max_dev = max(timestamps) - min(timestamps)
+            #max_dev = max(dev)
+            print("\r{}        {:.3f}s       {:.2f}        {:.3f}              {:.3f}                {}               {}".format(frames_processed, time.time() - start_time,fps,max(timestamps), max_dev, len(tstate), len(dbw)), end='\r', flush=True)
         
             # get next target time
-            target_time = clock.tick(timestamps)
+            target_time = clock.tick()
             frames_processed += 1
             
     
-            if frames_processed % 200 == 1:
+            if frames_processed % 50 == 1:
                 metrics = {
                     "frame bps": fps,
                     "frame batches processed":frames_processed,
@@ -399,11 +417,11 @@ def main(collection_overwrite = None):
                 logger.info("Tracking Status Log",extra = metrics)
                 logger.info("Time Utilization: {}".format(tm),extra = tm.bins())
                 
-            if frames_processed % 500 == 0:
+            if params.checkpoint and frames_processed % 500 == 0:
                 checkpoint(target_time,tstate,collection_overwrite)
        
         
-        checkpoint(target_time,tstate,collection_overwrite)
+        #checkpoint(target_time,tstate,collection_overwrite)
         logger.info("Finished tracking over input time range. Shutting down.")
         
         if True: # Flush tracker objects
@@ -411,11 +429,19 @@ def main(collection_overwrite = None):
             dbw.insert(residual_objects,cause_of_death = COD,time_offset = start_ts)
             logger.info("Flushed all active objects to database",extra = metrics)
 
+
+        if collection_overwrite is not None:
+            # cache settings in new folder
+            cache_dir = "./data/config_cache/{}".format(collection_overwrite)
+            #os.mkdir(cache_dir)
+            shutil.copytree(os.environ["USER_CONFIG_DIRECTORY"],cache_dir)    
+            logger.debug("Cached run settings in {}".format(cache_dir))
         
     except KeyboardInterrupt:
         logger.debug("Keyboard Interrupt recieved. Initializing soft shutdown")
         soft_shutdown(target_time, tstate,collection_overwrite,cleanup = [dbw,loader,dbank])
      
+    
     
     return fps
         

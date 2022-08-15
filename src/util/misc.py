@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import cv2
 import time
+import os
 
 colors = np.random.randint(0,255,[1000,3])
 colors[:,0] = 0.2
@@ -56,7 +57,7 @@ class Timer:
         return str(out)
 
 
-def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None, fr_num = 0,detections = None,priors = None):
+def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents=None, fr_num = 0,detections = None,priors = None, save_crops_dir = None):
     """
     Plots the set of active cameras, or a subset thereof
     tstate - TrackState object
@@ -124,6 +125,39 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
         # convert frame into cv2 image
         fr = (denorm(frames[f_idx]).numpy().transpose(1, 2, 0)*255)[:,:,::-1]
         #fr = frames[f_idx].numpy().transpose(1,2,0)
+        
+        
+        # if specifed, save each object crop
+        if save_crops_dir is not None and fr_num % 50 == 0:
+            if boxes is not None and len(boxes) > 0:
+                im_boxes = hg.state_to_im(boxes,name =cam_names[f_idx])
+                
+                #convert to bboxes
+                buffer = 30
+                xmin = torch.min(im_boxes[:,:,0],dim = 1)[0] - buffer
+                xmax = torch.max(im_boxes[:,:,0],dim = 1)[0] + buffer
+                ymin = torch.min(im_boxes[:,:,1],dim = 1)[0] - buffer
+                ymax = torch.max(im_boxes[:,:,1],dim = 1)[0] + buffer
+                im_boxes = torch.stack([xmin,ymin,xmax,ymax]).transpose(1,0)
+                
+                for c_idx in range(len(im_boxes)):
+                
+                    # generate unique name
+                    crop_save_name = "{}_{}_{}_{}.png".format(classes[c_idx],ids[c_idx],cam_names[f_idx],fr_num)
+                    crop_save_name = os.path.join(save_crops_dir,crop_save_name)
+                    
+                    x1 = int(im_boxes[c_idx,0].item())
+                    x2 = int(im_boxes[c_idx,2].item())
+                    y1 = int(im_boxes[c_idx,1].item())
+                    y2 = int(im_boxes[c_idx,3].item())
+                    
+                    # get crop extents
+                    crop = fr.copy()[y1:y2,x1:x2,:]
+                    if crop.shape[0] > 0 and crop.shape[1] > 0:
+                        cv2.imwrite(crop_save_name,crop)
+                    
+                
+        
         # use hg to plot the boxes and IDs in that camera
         if boxes is not None and len(boxes) > 0:
             

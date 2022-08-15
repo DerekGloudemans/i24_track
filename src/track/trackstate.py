@@ -41,6 +41,20 @@ class TrackState():
             with open(self.kf_param_path ,"rb") as f:
                 kf_params = pickle.load(f)
         
+        kf_params["R"] = kf_params["R"].diag().diag()
+        kf_params["R"][0,0] *= 1.5**2
+        kf_params["R"][1,1] /= 6**2
+        kf_params["R"][2,2] *= 1.75**2
+        kf_params["R"][3,3] *= 2.25**2
+        kf_params["R"][4,4] *= 1.5**2
+        kf_params["mu_R"] *= 0
+        #kf_params["mu_R"][2] = -1.5
+        # kf_params["mu_R"][3] = -0.5
+        # kf_params["mu_R"][4] = 0.3
+        
+        with open("./data/kf_params/kf_params_save3.cpkl","wb") as f:
+            pickle.dump(kf_params,f)
+        
         # initialize Kalman filter
         self.kf = Torch_KF(self.device,INIT = kf_params)
         
@@ -183,9 +197,17 @@ class TrackierState(TrackState):
         super().__init__()
            
       
-    def _update_history(self,id):
+    def _update_history(self,id,detection = None,prior_cov = None,prior = None):
+        
+        if detection is None:
+            detection = torch.zeros(5)
+        if prior_cov is None:
+            prior_cov = torch.zeros(6)
+        if prior is None:
+            prior = torch.zeros(6)
+                
         time = self.kf.T[self.kf.obj_idxs[id]].item()
-        self._history[id].append((time,self.kf.X[self.kf.obj_idxs[id]],self.kf.P[self.kf.obj_idxs[id]].diag()))
+        self._history[id].append((time,self.kf.X[self.kf.obj_idxs[id]],self.kf.P[self.kf.obj_idxs[id]].diag(),detection,prior_cov,prior))
         
     def remove(self,ids):
         removals = {}
@@ -203,9 +225,13 @@ class TrackierState(TrackState):
         return removals
     
     
-    def update(self,detections,obj_ids,classes,confs,measurement_idx = 1,high_confidence_threshold = 0):
+    def update(self,detections,obj_ids,classes,confs,measurement_idx = 0,high_confidence_threshold = 0):
         if len(obj_ids) > 0:
             # update kf states
+            
+            cache_prior_covs = [self.kf.P[self.kf.obj_idxs[id]].diag() for id in obj_ids]
+            cache_priors     = [self.kf.X[self.kf.obj_idxs[id]]        for id in obj_ids]
+            
             self.kf.update(detections,obj_ids,measurement_idx = measurement_idx)
         
         # increment all fslds - any obj with an update will have fsld overwritten next
@@ -221,8 +247,8 @@ class TrackierState(TrackState):
                 self.fsld[id] = 0
                 
         # update stored history
-        for id in obj_ids:
-            self._update_history(id)
+        for idx,id in enumerate(obj_ids):
+            self._update_history(id,detections[idx],cache_prior_covs[idx],cache_priors[idx])
         
     
         
