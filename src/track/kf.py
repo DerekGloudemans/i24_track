@@ -201,7 +201,7 @@ class Torch_KF(object):
             # overwrite l,w,h with class mean values
             for i in range(len(newX)):
                 newX[i,2:5] = self.class_size[classes[i]]
-                newP[i,2:5,2:5] = self.class_covariance[classes[i]]
+                #newP[i,2:5,2:5] = self.class_covariance[classes[i]]
             
             # overwrite l,w,h portion of p with known covariance
         

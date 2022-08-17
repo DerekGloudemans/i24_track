@@ -31,6 +31,24 @@ class TrackState():
         self._history = {}                # dict of lists, each list item is (time,kf_state) 
         self._next_obj_id = 0             # next id for a new object (incremented during tracking)
 
+        self.class_dict = { "sedan":0,
+                    "midsize":1,
+                    "van":2,
+                    "pickup":3,
+                    "semi":4,
+                    "truck (other)":5,
+                    "truck": 5,
+                    "motorcycle":6,
+                    "trailer":7,
+                    0:"sedan",
+                    1:"midsize",
+                    2:"van",
+                    3:"pickup",
+                    4:"semi",
+                    5:"truck (other)",
+                    6:"motorcycle",
+                    7:"trailer"
+                    }
         
         # load config params (self.device_id, self.kf_param_path,self.n_classes)
         self = parse_cfg("TRACK_CONFIG_SECTION",obj = self)
@@ -61,9 +79,7 @@ class TrackState():
         #kf_params["mu_R"][2] = -1.5
         # kf_params["mu_R"][3] = -0.5
         # kf_params["mu_R"][4] = 0.3
-        
-        kf_params["mu_Q"] = 0
-
+    
         
         with open("./data/kf_params/kf_params_save3.cpkl","wb") as f:
             pickle.dump(kf_params,f)
@@ -104,6 +120,7 @@ class TrackState():
         
         new_ids = []
         
+        classes = []
         for i in range(len(detections)):                
             new_ids.append(self._next_obj_id)
 
@@ -115,13 +132,20 @@ class TrackState():
             
             # get class and conf for object
             cls = int(labels[i])
+            
+            if self.use_mean_class_size:
+                classes.append(self.class_dict[cls])
+                
             self.all_classes[self._next_obj_id][cls] += 1
             self.all_confs[self._next_obj_id].append(scores[i])         
             
             self._next_obj_id += 1
             
+            
         if len(detections) > 0:   
-            self.kf.add(detections,new_ids,directions,detection_times,init_speed = init_speed)
+            if len(classes) == 0:
+                classes = None
+            self.kf.add(detections,new_ids,directions,detection_times,init_speed = init_speed,classes = classes)
            
         # update history
         for id in new_ids:
@@ -221,7 +245,7 @@ class TrackierState(TrackState):
             prior = torch.zeros(6)
                 
         time = self.kf.T[self.kf.obj_idxs[id]].item()
-        self._history[id].append((time,self.kf.X[self.kf.obj_idxs[id]],self.kf.P[self.kf.obj_idxs[id]].diag(),detection,prior_cov,prior))
+        self._history[id].append((time,self.kf.X[self.kf.obj_idxs[id]].clone(),self.kf.P[self.kf.obj_idxs[id]].diag().clone(),detection,prior_cov,prior))
         
     def remove(self,ids):
         removals = {}
@@ -243,8 +267,8 @@ class TrackierState(TrackState):
         if len(obj_ids) > 0:
             # update kf states
             
-            cache_prior_covs = [self.kf.P[self.kf.obj_idxs[id]].diag() for id in obj_ids]
-            cache_priors     = [self.kf.X[self.kf.obj_idxs[id]]        for id in obj_ids]
+            cache_prior_covs = [self.kf.P[self.kf.obj_idxs[id]].diag().clone() for id in obj_ids]
+            cache_priors     = [self.kf.X[self.kf.obj_idxs[id]].clone()        for id in obj_ids]
             
             self.kf.update(detections,obj_ids,measurement_idx = measurement_idx)
         
