@@ -351,10 +351,12 @@ class Torch_KF(object):
             H = self.H
             R = self.R
         elif measurement_idx == 1:
+            print("Problem!")
             mu_R = self.mu_R2
             R = self.R2
             H = self.H2
         elif measurement_idx == 2:
+            print("Problem!")
             mu_R = self.mu_R3
             R = self.R3
             H = self.H3        

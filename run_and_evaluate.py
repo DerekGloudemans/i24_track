@@ -77,6 +77,22 @@ noun_list = ["anteater",
              "bison",
              "wallaby",
              "heron",
+             "brontosaurus",
+             "cnidarian",
+             "pufferfish",
+             "snail",
+             "falcon",
+             "buffalo",
+             "ox",
+             "caribou",
+             "cephalopod",
+             "anglerfish",
+             "markhor",
+             "oryx",
+             "antelope",
+             "trilobite",
+             "extraterrestrial",
+             "mockingbird",
              "stork",
              "cyborg",
              "vulcan",
@@ -105,7 +121,6 @@ noun_list = ["anteater",
              "axylotl",
              "kangaroo"
              ]
-
 
 db_param = {
       "default_host": "10.2.218.56",
@@ -159,10 +174,9 @@ if __name__ == "__main__":
             noun = noun_list[np.random.randint(0,len(noun_list))]
             coll_name = "{}_{}--RAW_{}".format(adj,noun,TAG)
             if coll_name not in existing_collections:
-                print("\nFound unique database collection name: {}".format(coll_name))     
                 break
             
-        
+    print("\nFound unique database collection name: {}".format(coll_name))    
         
     # set config directory
     os.environ["USER_CONFIG_DIRECTORY"] = run_config

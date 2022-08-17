@@ -454,7 +454,7 @@ class SmartTracker(BaseTracker):
                 space = hg.state_to_space(states)
                 lifespans = tstate.get_lifespans()
                 scores = torch.tensor([lifespans[id.item()] for id in ids])
-                keep = space_nms(space,scores.float(),threshold = 0.01)
+                keep = space_nms(space,scores.float(),threshold = self.iou_max)
                 keep_ids = ids[keep]
                 
                 removals = ids.tolist()
