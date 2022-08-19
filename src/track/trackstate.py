@@ -71,16 +71,23 @@ class TrackState():
         kf_params["P"][0,0] *= 5**2
         kf_params["P"][1,1] /= 2**2
         
+        # with linear scaling
+        # kf_params["Q"] = kf_params["Q"].diag().diag()
+        # kf_params["Q"][0,0] /= 4**2
+        # kf_params["Q"][3,3] /= 2**2
+        # kf_params["Q"][4,4] /= 2**2
+        # kf_params["Q"][5,5] /= 15**2
+
+        #with sqrt scaling
         kf_params["Q"] = kf_params["Q"].diag().diag()
-        kf_params["Q"][0,0] /= 4**2
-        kf_params["Q"][3,3] /= 2**2
-        kf_params["Q"][4,4] /= 2**2
-        kf_params["Q"][5,5] /= 15**2
-        #kf_params["mu_R"][2] = -1.5
-        # kf_params["mu_R"][3] = -0.5
-        # kf_params["mu_R"][4] = 0.3
+        kf_params["Q"][0,0] /= 6**2 
+        kf_params["Q"][1,1] *= 8
+        kf_params["Q"][2,2] *= 2
+        kf_params["Q"][3,3] *= 2
+        kf_params["Q"][4,4] /= 1.25
+        kf_params["Q"][5,5] /= 25
     
-        
+    
         with open("./data/kf_params/kf_params_save3.cpkl","wb") as f:
             pickle.dump(kf_params,f)
         
@@ -188,7 +195,7 @@ class TrackState():
     
     def predict(self,dt = None):
         self.kf.predict(dt = dt)
-    
+            
     def update(self,detections,obj_ids,classes,confs,measurement_idx = 1,high_confidence_threshold = 0):
         if len(obj_ids) > 0:
             # update kf states

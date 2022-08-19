@@ -318,10 +318,19 @@ class Torch_KF(object):
         step4 = self.Q.repeat(len(self.P),1,1)
         
         # scale Q by the timestamp, assuming model error is linearly correlated to dt
+        # in fact, this should be scaled at with the square root of dt, see https://stats.stackexchange.com/questions/49300/how-does-one-apply-kalman-smoothing-with-irregular-time-steps/585962#585962
+        
+        if torch.min(dt) < 0:
+            print("We got a filtering problem \n\n\n Min dt is less than 0!: {}".format(dt))
+        #dt = torch.clamp(dt,min = 0.001)
+        # try:
+        #     step4 = step4 * dt/self.dt_default
+        # except:
+        #     step4 = step4 * dt.unsqueeze(1).unsqueeze(2).repeat(1,self.Q.shape[1],self.Q.shape[2]) / self.dt_default   
         try:
-            step4 = step4 * dt/self.dt_default
+            step4 = step4 * torch.sqrt(dt/self.dt_default)
         except:
-            step4 = step4 * dt.unsqueeze(1).unsqueeze(2).repeat(1,self.Q.shape[1],self.Q.shape[2]) / self.dt_default
+            step4 = step4 * torch.sqrt(dt.unsqueeze(1).unsqueeze(2).repeat(1,self.Q.shape[1],self.Q.shape[2]) / self.dt_default)    
             
         self.P = step3 + step4
         self.P = self.P.float()

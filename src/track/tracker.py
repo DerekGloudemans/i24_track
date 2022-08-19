@@ -205,10 +205,10 @@ class BaseTracker():
         :return selected_idxs - tensor of idxs on which to perform measurement update (naively, all of them)
         """
         
-        dts = tstate.get_dt(obj_times)
-        tstate.predict(dt = dts)   
+        #dts = tstate.get_dt(obj_times)
+        #tstate.predict(dt = dts)   
         
-        obj_ids,priors = tstate()
+        obj_ids,priors = tstate(target_time = obj_times)
         
         selected_idxs = self.select_idxs(tstate,obj_times)
         

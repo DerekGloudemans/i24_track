@@ -208,7 +208,7 @@ def main(collection_overwrite = None):
         ts_file = params.timestamp_file
         from src.load.gpu_load_GT_presynced import MCLoader
         loader = MCLoader(in_dir, ts_file, dmap.camera_mapping_file, ctx,Hz = params.nominal_framerate)
-        loader.get_frames()
+        #loader.get_frames()
         print("Using GT Loader")
     except:
         from src.load.gpu_load_multi       import MCLoader

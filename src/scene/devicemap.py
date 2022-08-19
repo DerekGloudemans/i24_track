@@ -270,12 +270,17 @@ class HeuristicDeviceMap(DeviceMap):
         is_visible = x_pass
         
         
+        object_ts = - tstate.get_dt(0) # time at which each object was left
+        object_ts = object_ts.unsqueeze(1).expand(n_o,n_c)
+        frame_ts = torch.tensor(ts).unsqueeze(0).expand(n_o,n_c)
+        ts_valid = torch.where(object_ts-frame_ts < 0, torch.ones([n_o,n_c]),torch.zeros([n_o,n_c]))
         
+        # print("\nts_valid: {}\n".format(torch.mean(ts_valid)))
         ## create ts_valid, [n_objs,n_cameras]
-        ts_valid = [(0 if item < 1 else 1) for item in ts]
-        ts_valid = torch.tensor(ts_valid).int().unsqueeze(0).expand(n_o,n_c)
+        #ts_valid = [(0 if item < 1 else 1) for item in ts]
+        #ts_valid = torch.tensor(ts_valid).int().unsqueeze(0).expand(n_o,n_c)
         #ts_valid = torch.nan_to_num(ts+1).clamp(0,1).int().unsqueeze(0).expand(n_o,n_c)
-        ts_valid = torch.ones([n_o,n_c])
+        #ts_valid = torch.ones([n_o,n_c])
         
         # create priority, [n_objs,n_cameras]
         priority = self.priority.unsqueeze(0).expand(n_o,n_c)

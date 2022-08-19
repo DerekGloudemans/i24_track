@@ -16,3 +16,7 @@ src/mc/__pycache__/
 *.pyc
 
 src/I24-postprocessing/
+
+config/lambda_cerulean_2/
+
+data/config_cache
