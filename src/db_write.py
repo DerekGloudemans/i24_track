@@ -199,8 +199,8 @@ class WriteWrapperConf():
         # optionally de-bias states before writing
         ts_bias = 0
         if self.ts_bias:
-            ts_bias = -0.0275 #-0.0333
-            
+            #ts_bias = -0.0275 #-0.0333
+            ts_bias = -0.003
         bias = np.zeros([6])
         if self.state_bias:
             bias = np.array([0, -0.2, -1.5, -0.4, 0.3])  

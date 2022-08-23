@@ -228,7 +228,7 @@ class RetinanetCropFramePipeline(DetectPipeline):
             del frames
             return torch.empty([0,6]) , torch.empty(0), torch.empty(0), [], torch.empty(0)
         
-        #self.tm.split("Pre",SYNC=True)
+        self.tm.split("Pre",SYNC=True)
         prepped_frames,crop_boxes = self.prep_frames(frames,priors = priors)
         self.tm.split("Detect",SYNC=True)
         detection_result = self.detect(prepped_frames)

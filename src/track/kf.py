@@ -192,8 +192,38 @@ class Torch_KF(object):
                 newT = times.to(self.device)
 
         if init_speed:
-            newV = self.mu_v.repeat(len(detections)).to(self.device)
-            newX[:,-1] = newV
+            
+            
+            # init speed with mu_v
+            newV = self.mu_v.repeat(len(detections)).to(self.device) / 2
+            # direction_mask = (newD + 1)  #//2
+            # newV = newV/2 + newV/2* direction_mask
+            
+            # init speed with per-side average
+            if True:
+                if self.X is not None and len(self.X) > 0:
+                    # get masked speeds per direction 
+                    EB_v = self.X[self.D == 1,-1]
+                    WB_v = self.X[self.D == -1,-1]
+                    
+                    # get avg speed
+                    if len(EB_v) > 0:
+                        EB_avg = EB_v.mean()
+                    else:
+                        EB_avg = self.mu_v / 2
+                    
+                    if len(WB_v) > 0:
+                        WB_avg = WB_v.mean()
+                    else:
+                        WB_avg = self.mu_v / 2
+                    
+                    # mask speeds per direction and add
+                    WB = WB_avg.repeat(len(detections)).to(self.device)
+                    EB = EB_avg.repeat(len(detections)).to(self.device)
+                    WB_mask = torch.div(directions-1,-2,rounding_mode="trunc")
+                    EB_mask = torch.div(directions+1,2,rounding_mode="trunc")
+                    newV = WB*WB_mask + EB*EB_mask
+                newX[:,-1] = newV
                 
         newP = self.P0.repeat(len(obj_ids),1,1)
 

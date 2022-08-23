@@ -25,16 +25,32 @@ def db_cleanup(dbw,coll_name):
         if inp2 == "YES":
             if len(remove) > 0:
                 dbw.delete_collection(remove)
+# db_param = {
+#       "default_host": "10.2.218.56",
+#       "default_port": 27017,
+#       "host":"10.2.218.56",
+#       "port":27017,
+#       "username":"i24-data",
+#       "password":"mongodb@i24",
+#       "default_username": "i24-data",
+#       "readonly_user":"i24-data",
+#       "default_password": "mongodb@i24",
+#       "db_name": "trajectories",      
+#       "server_id": 1,
+#       "session_config_id": 1,
+#       "trajectory_database":"trajectories",
+#       "timestamp_database":"transformed"
+#       }
+
 db_param = {
-      "default_host": "10.2.218.56",
+      "default_host": "10.80.4.91",
       "default_port": 27017,
-      "host":"10.2.218.56",
-      "port":27017,
-      "username":"i24-data",
-      "password":"mongodb@i24",
-      "default_username": "i24-data",
-      "readonly_user":"i24-data",
-      "default_password": "mongodb@i24",
+      #"host":"10.80.4.91",
+      # "port":27017,
+      # "username":"i24-data",
+      # "password":"mongodb@i24",
+      "default_username": "mongo-admin",
+      "default_password": "i24-data-access",
       "db_name": "trajectories",      
       "server_id": 1,
       "session_config_id": 1,
@@ -43,17 +59,16 @@ db_param = {
       }
 
 if __name__ == "__main__":
-    run_config = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval1"
-    gt_coll = "groundtruth_scene_1"
-    TAG = "GT1" 
+    run_config = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
+    gt_coll = "groundtruth_scene_2_57"
+    TAG = "GT2" 
     n_GPUs = 4
     n_cameras = 17
         
     ### overwrite collection_name 
     #coll_name = "morose_panda--RAW_GT1"
     
-    # generate comment
-    comment = input("Description of run settings / test for storage with evaluation results: ")    
+   
 
     #coll_name = "tantalizing_anaconda--RAW_GT1" 
 
@@ -64,8 +79,10 @@ if __name__ == "__main__":
 
     dbw   = DBWriter(db_param,collection_name = db_param["db_name"])
     existing_collections = [col["name"] for col in list(dbw.db.list_collections())] # list all collections
-    #print(existing_collections)
+    print(existing_collections)
     
+    # generate comment
+    comment = input("Description of run settings / test for storage with evaluation results: ")    
     
     bps = -1
     try:
@@ -124,4 +141,4 @@ if __name__ == "__main__":
     
     os.chdir("../trajectory-eval-toolkit")
     from evaluate import main as evaluate_main
-    evaluate_main()
+    evaluate_main(gt_coll= gt_coll, TAG = TAG)

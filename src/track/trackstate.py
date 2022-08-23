@@ -70,6 +70,7 @@ class TrackState():
         kf_params["P"] = kf_params["P"].diag().diag()
         kf_params["P"][0,0] *= 5**2
         kf_params["P"][1,1] /= 2**2
+        kf_params["P"][5,5] *= 300
         
         # with linear scaling
         # kf_params["Q"] = kf_params["Q"].diag().diag()
@@ -80,12 +81,12 @@ class TrackState():
 
         #with sqrt scaling
         kf_params["Q"] = kf_params["Q"].diag().diag()
-        kf_params["Q"][0,0] /= 6**2 
+        kf_params["Q"][0,0] /= 4**2 
         kf_params["Q"][1,1] *= 8
         kf_params["Q"][2,2] *= 2
         kf_params["Q"][3,3] *= 2
         kf_params["Q"][4,4] /= 1.25
-        kf_params["Q"][5,5] /= 25
+        kf_params["Q"][5,5] /= 30
     
     
         with open("./data/kf_params/kf_params_save3.cpkl","wb") as f:

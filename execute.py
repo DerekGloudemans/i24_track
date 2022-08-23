@@ -6,8 +6,8 @@ import torch
 import os,shutil
 import time
 
-os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval1"
-os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval1"
+os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
+os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
 
 from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
@@ -332,9 +332,9 @@ def main(collection_overwrite = None):
                         obj_ids, priors, device_idxs, camera_idxs, run_device_ids=params.cuda_devices)
             
                     # test on a single on-process pipeline
-                    # pipelines[pipeline_idx].set_device(0)
-                    # pipelines[pipeline_idx].set_cam_names(dmap.gpu_cam_names[0])
-                    # test = pipelines[pipeline_idx](frames[0],prior_stack[0])
+                    pipelines[pipeline_idx].set_device(1)
+                    pipelines[pipeline_idx].set_cam_names(dmap.gpu_cam_names[1])
+                    test = pipelines[pipeline_idx](frames[1],prior_stack[1])
             
             
                     # TODO - full frame detections should probably get full set of objects?
@@ -389,7 +389,7 @@ def main(collection_overwrite = None):
                            fr_num = frames_processed,
                            detections = detections,
                            priors = priors,
-                           save_crops_dir="./data/crops_temp")
+                           save_crops_dir=None)
     
             
             # text readout update

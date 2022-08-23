@@ -107,6 +107,7 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
 
         # get the reported position of each object from tstate for that time
         ids, boxes = tstate(ts[f_idx],with_direction=True)
+        #ids,boxes = tstate()
         classes = torch.tensor([class_by_id[id.item()] for id in ids])
         
         
@@ -167,9 +168,10 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
             #color_slice = np.stack(color_slice)
             if color_slice.ndim == 1:
                  color_slice = color_slice[np.newaxis,:]
+            #color_slice = (0,255,0)
             
             fr = hg.plot_state_boxes(
-                fr.copy(), boxes, name=cam_names[f_idx], labels=labels,thickness = 3, color = color_slice)
+                fr.copy(), boxes, name=cam_names[f_idx], labels=labels,thickness = 2, color = color_slice)
 
         # plot original detections
         if detections is not None:
@@ -217,14 +219,15 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
 
     cv2.imwrite("/home/derek/Desktop/temp_frames/{}.png".format(str(fr_num).zfill(4)),cat_im*255)
     # plot
-    cv2.imshow("frame", cat_im)
-    # cv2.setWindowTitle("frame",str(self.frame_num))
-    key = cv2.waitKey(1)
-    if key == ord("p"):
-        cv2.waitKey(0)
-    elif key == ord("q"):
-        cv2.destroyAllWindows()
-        shutdown()
+    if False:
+        cv2.imshow("frame", cat_im)
+        # cv2.setWindowTitle("frame",str(self.frame_num))
+        key = cv2.waitKey(1)
+        if key == ord("p"):
+            cv2.waitKey(0)
+        elif key == ord("q"):
+            cv2.destroyAllWindows()
+            shutdown()
 
 def shutdown():
     raise KeyboardInterrupt("Manual Shutdown triggered")
