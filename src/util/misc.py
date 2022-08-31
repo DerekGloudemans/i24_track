@@ -171,7 +171,7 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
             #color_slice = (0,255,0)
             
             fr = hg.plot_state_boxes(
-                fr.copy(), boxes, name=cam_names[f_idx], labels=labels,thickness = 2, color = color_slice)
+                fr.copy(), boxes, name=cam_names[f_idx], labels=None,thickness = 3, color = color_slice)
 
         # plot original detections
         if detections is not None:
@@ -183,7 +183,7 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
                 fr.copy(), detections_selected, name=cam_names[f_idx], labels=None,thickness = 1, color = (255,0,0))
 
         # plot priors
-        if priors is not None and len(priors) > 0:
+        if  priors is not None and len(priors) > 0:
             keep_pr = torch.mul(torch.where(priors[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
                 priors[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1)
             priors_selected = priors[keep_pr,:]

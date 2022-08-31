@@ -65,13 +65,6 @@ if __name__ == "__main__":
     n_GPUs = 4
     n_cameras = 17
         
-    ### overwrite collection_name 
-    #coll_name = "morose_panda--RAW_GT1"
-    
-   
-
-    #coll_name = "tantalizing_anaconda--RAW_GT1" 
-
 
     if TAG not in ["GT1","GT2","GT3","Unsup"]:
         raise ValueError("Tag! You're not it.")
@@ -79,6 +72,7 @@ if __name__ == "__main__":
 
     dbw   = DBWriter(db_param,collection_name = db_param["db_name"])
     existing_collections = [col["name"] for col in list(dbw.db.list_collections())] # list all collections
+    existing_collections.sort()
     print(existing_collections)
     
     # generate comment
@@ -112,22 +106,8 @@ if __name__ == "__main__":
     result["config"] = run_config
     result["n_cameras"] = n_cameras
     result["n_gpus"] = n_GPUs
-    
-    # start = time.time()
-    # ### supervised evaluation
-    # if gt_coll is not None:
-    #     metrics = evaluate(db_param,gt_collection = gt_coll,pred_collection = coll_name, sample_freq = 30, break_sample = 2700,append_db = True,iou_threshold = IOUT)
-    #     result["gt"] = gt_coll
-    #     result["metrics"] = metrics
-   
-    
-    # ### unsupervised statistics
-    # statistics = call(db_param,coll_name)
-    # result["statistics"] = statistics
-    # elapsed = time.time() - start
-    # result["eval_time"] = elapsed
 
-    ### Save results dict in /data/eval_results
+    ### Save results dict in /data/run_results
     save_name = "/home/derek/Documents/i24/trajectory-eval-toolkit/data/run_results/{}_run_results.cpkl".format(coll_name)
     with open(save_name, 'wb') as f:
         pickle.dump(result, f)

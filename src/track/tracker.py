@@ -428,6 +428,30 @@ class SmartTracker(BaseTracker):
         stale_objects = self.remove(tstate,hg)
         return stale_objects
             
+    def medianize(self,tstate,obj_ids):
+        """
+        Re-initialize object state (expect x-position) with median of all historical states so far,
+        then re-initialize state covariance lower
+        """
+        
+        for id in obj_ids:
+            
+            # get history
+            hist = tstate._history[id]
+            
+            # get median state
+            states = []
+            for item in hist:
+                states.append(item[1])
+            states = torch.stack(states)
+            median = torch.median(states,dim = 0)[0]
+            
+            # overwrite state with median
+            tstate.kf.X[tstate.kf.obj_idxs[id],1:] = median [1:]
+            
+            # overwrite covariance with new covariance
+            tstate.kf.P[tstate.kf.obj_idxs[id],1:,1:] /= 1
+    
     def remove(self,tstate,hg = None):
             
             out_objs = {}
@@ -435,7 +459,7 @@ class SmartTracker(BaseTracker):
             
             
             # 5. Remove lost objects (too many frames since last detected)    
-            if self.fsld_max != -1:
+            if False and self.fsld_max != -1:
                 removals = []
                 ids,states = tstate()  
                 for i in range(len(ids)):
@@ -483,17 +507,27 @@ class SmartTracker(BaseTracker):
             # 3. Remove objects that don't have enough high confidence detections
             ids,states = tstate()
             removals = []
+            
+            high_ids = [] # to be medianized
             for id in ids:
                 id = id.item()
                 if len(tstate.all_confs[id]) == self.n_init:
+                    high = True
                     for conf in tstate.all_confs[id]:
                         if conf < self.sigma_high:
                             removals.append(id)
+                            high = False
                             break
+                    if high:
+                        high_ids.append(id)
+                        
             objs = tstate.remove(removals)
             for key in objs.keys():
                 out_objs[key] = objs[key] 
                 COD[key] = "Low confidence"
+                
+            if self.median_initialize:
+                self.medianize(tstate,high_ids)
 
             # 4. Pop objects that are out of FOV
             removals = []

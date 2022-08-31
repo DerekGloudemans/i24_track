@@ -115,7 +115,19 @@ class Torch_KF(object):
         self.mu_R = self.mu_R.to(device).float()
         #self.mu_R2 = self.mu_R.to(device).float()
     
-   
+        # self.y_clamp = torch.tensor([[-5,5],
+        #                              [-2,2],
+        #                              [-3,3],
+        #                              [-2,2],
+        #                              [-1,1],
+        #                             ]).to(device).float()
+        
+        self.y_clamp = torch.tensor([[-7,7],
+                                     [-1,1],
+                                     [-3,3],
+                                     [-1,1],
+                                     [-1,1],
+                                    ]).to(device).float()
     
     def get_dt(self, target_time, idxs = None, use_default = True):
         """
@@ -414,6 +426,12 @@ class Torch_KF(object):
         except:
              z = detections.to(self.device).double()
         y = z + mu_R - torch.mm(X_up, H.transpose(0,1))  ######### Not sure if this is right but..
+        
+        # clamp innovation
+        if False:
+            clamp = self.y_clamp .unsqueeze(0).expand(y.shape[0],y.shape[1],2)
+            y = torch.clamp(y,clamp[:,:,0],clamp[:,:,1])
+        
         
         # covariance innovation --> HPHt + R --> [mx4x4] = [mx4x7] bx [mx7x7] bx [mx4x7]t + [mx4x4]
         # where bx is batch matrix multiplication broadcast along dim 0
