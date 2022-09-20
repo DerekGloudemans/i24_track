@@ -406,7 +406,18 @@ class SmartTracker(BaseTracker):
             for i in update_idxs:
                 new_idxs.remove(i)
               
-            
+            # if initializations is not None:
+            #     if len(initializations) > 0:
+            #         #stack initializations as tensor
+            #         new_detections = torch.stack( [torch.tensor([obj["x"],obj["y"],obj["l"],obj["w"],obj["h"]]) for obj in initializations])
+            #         new_classes    = torch.tensor( [hg.hg1.class_dict[obj["class"]]                                  for obj in initializations])
+            #         new_confs      = torch.ones ( len(initializations))
+            #         new_times      = torch.tensor( [obj["timestamp"]                                             for obj in initializations])
+                    
+            #         # create direction tensor based on location
+            #         directions = torch.where(new_detections[:,1] > 60, torch.zeros(new_confs.shape)-1,torch.ones(new_confs.shape))
+            #         tstate.add(new_detections,directions,new_times,new_classes,new_confs,init_speed = True)
+                
             # add new detections as new objects
             if len(new_idxs) > 0:
                 new_idxs = torch.tensor(new_idxs)
@@ -415,10 +426,8 @@ class SmartTracker(BaseTracker):
                 new_confs = confs[new_idxs]
                 new_times = detection_times[new_idxs]
                 
-                
                 # create direction tensor based on location
                 directions = torch.where(new_detections[:,1] > 60, torch.zeros(new_confs.shape)-1,torch.ones(new_confs.shape))
-                
                 tstate.add(new_detections,directions,new_times,new_classes,new_confs,init_speed = True)
                 
         # if no detections, increment fsld in all tracked objects
@@ -474,7 +483,7 @@ class SmartTracker(BaseTracker):
                     
             # 1. do nms on all objects to remove overlaps, where score = # of frames since initialized
             if  hg is not None:
-                ids,states = tstate()
+                ids,states = tstate(target_time = tstate.kf.T[0])  # so objects are at same time??
                 space = hg.state_to_space(states)
                 lifespans = tstate.get_lifespans()
                 scores = torch.tensor([lifespans[id.item()] for id in ids])
@@ -491,17 +500,17 @@ class SmartTracker(BaseTracker):
                     COD[key] = "Overlap"
                     
             # 2. Remove anomalies
-            # ids,states = tstate()
-            # removals = []
-            # for i in range(len(ids)):
-            #     for j in range(5):
-            #         if states[i,j] < self.state_bounds[2*j] or states[i,j] > self.state_bounds[2*j+1]:
-            #             removals.append(ids[i].item())
-            #             break
-            # objs = tstate.remove(removals)
-            # for key in objs.keys():
-            #     out_objs[key] = objs[key] 
-            #     COD[key] = "Anomalous state"
+            ids,states = tstate()
+            removals = []
+            for i in range(len(ids)):
+                for j in range(5):
+                    if states[i,j] < self.state_bounds[2*j] or states[i,j] > self.state_bounds[2*j+1]:
+                        removals.append(ids[i].item())
+                        break
+            objs = tstate.remove(removals)
+            for key in objs.keys():
+                out_objs[key] = objs[key] 
+                COD[key] = "Anomalous state"
 
             
             # 3. Remove objects that don't have enough high confidence detections

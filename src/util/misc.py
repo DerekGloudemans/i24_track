@@ -29,12 +29,13 @@ class Timer:
         
         self.start_time= time.time()
         self.split_time = None
+        self.synchronize = True
         
     def split(self,section,SYNC = False):
 
         # store split time up until now in previously active section (cur_section)
         if self.split_time is not None:
-            if SYNC:
+            if SYNC and self.synchronize:
                 torch.cuda.synchronize()
                 
             elapsed = time.time() - self.split_time
@@ -112,11 +113,18 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
         
         
         if extents is not None and len(boxes) > 0:
-            xmin, xmax, _ = extents[cam_names[f_idx]]
+            xmin, xmax, ymin,ymax = extents[cam_names[f_idx]]
 
             # select objects that fall within that camera's space range (+ some tolerance)
+            # keep_obj = torch.mul(torch.where(boxes[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
+            #     boxes[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1) 
             keep_obj = torch.mul(torch.where(boxes[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
-                boxes[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1)
+                boxes[:, 0] < xmax + PLOT_TOLERANCE, 1, 0))
+            keep_obj2 = torch.mul(torch.where(boxes[:, 1] > ymin, 1, 0), torch.where(
+                boxes[:, 1] < ymax, 1, 0))
+            
+            keep_obj = (keep_obj * keep_obj2).nonzero().squeeze(1)
+            
             boxes = boxes[keep_obj,:]
             ids = ids[keep_obj]
             classes = classes[keep_obj]
@@ -171,7 +179,7 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
             #color_slice = (0,255,0)
             
             fr = hg.plot_state_boxes(
-                fr.copy(), boxes, name=cam_names[f_idx], labels=None,thickness = 3, color = color_slice)
+                fr.copy(), boxes, name=cam_names[f_idx], labels=labels,thickness = 3, color = color_slice)
 
         # plot original detections
         if detections is not None:

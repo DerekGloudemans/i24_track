@@ -148,12 +148,12 @@ class DeviceMap():
     
     @catch_critical()
     def __call__(self,tstate,ts):
-        cam_map,obj_times = self.map_cameras(tstate,ts)
+        cam_map,obj_times,keep = self.map_cameras(tstate,ts)
         gpu_map = self.map_devices(cam_map)
         
         # get times
         
-        return cam_map,gpu_map,obj_times
+        return cam_map,gpu_map,obj_times,keep
     
     @catch_critical()
     def route_objects(self,obj_ids,priors,device_idxs,camera_idxs,run_device_ids = None):
@@ -253,30 +253,33 @@ class HeuristicDeviceMap(DeviceMap):
         n_o = len(ids)
         
         if n_o == 0:
-            return [],[]
+            return [],[],[]
         
         ## create is_visible, [n_objects,n_cameras]
-    
         # broadcast both to [n_objs,n_cameras,2]
         states_brx = states[:,0].unsqueeze(1).unsqueeze(2).expand(n_o,n_c,2)
-        states_bry = states[:,1].unsqueeze(1).expand(n_o,n_c)
         cams_brx = self.cam_extents[:,[0,1]].unsqueeze(0).expand(n_o,n_c,2)
-        cams_bry = self.cam_extents[:,2].unsqueeze(0).expand(n_o,n_c)
-        
         # get map of where state is within range
         x_pass = torch.sign(states_brx-cams_brx)
         x_pass = ((torch.mul(x_pass[:,:,0],x_pass[:,:,1]) -1 )* -0.5).int()  # 1 if inside, 0 if outside
+        #is_visible = x_pass
         
-        is_visible = x_pass
+        #cams_bry = self.cam_extents[:,2].unsqueeze(0).expand(n_o,n_c)
+        states_bry = states[:,1].unsqueeze(1).unsqueeze(2).expand(n_o,n_c,2)
+        cams_bry = self.cam_extents[:,[2,3]].unsqueeze(0).expand(n_o,n_c,2)
+        y_pass = torch.sign(states_bry - cams_bry)
+        y_pass = ((torch.mul(y_pass[:,:,0],y_pass[:,:,1]) -1 )* -0.5).int()  # 1 if inside, 0 if outside
+        
+        is_visible = x_pass * y_pass
         
         
+        ## create ts_valid, [n_objs,n_cameras]
         object_ts = - tstate.get_dt(0) # time at which each object was left
         object_ts = object_ts.unsqueeze(1).expand(n_o,n_c)
         frame_ts = torch.tensor(ts).unsqueeze(0).expand(n_o,n_c)
         ts_valid = torch.where(object_ts-frame_ts < 0, torch.ones([n_o,n_c]),torch.zeros([n_o,n_c]))
         
         # print("\nts_valid: {}\n".format(torch.mean(ts_valid)))
-        ## create ts_valid, [n_objs,n_cameras]
         #ts_valid = [(0 if item < 1 else 1) for item in ts]
         #ts_valid = torch.tensor(ts_valid).int().unsqueeze(0).expand(n_o,n_c)
         #ts_valid = torch.nan_to_num(ts+1).clamp(0,1).int().unsqueeze(0).expand(n_o,n_c)
@@ -287,18 +290,21 @@ class HeuristicDeviceMap(DeviceMap):
         
         # create distance, [n_objs,n_cameras]        
         center_x = cams_brx.sum(dim = 2)/2.0
-        center_y = cams_bry
+        center_y = cams_bry.sum(dim = 2)/2.0
         
-        dist = ((center_x - states_brx[:,:,0]).pow(2) + (center_y - states_bry).pow(2)).sqrt()
+        dist = ((center_x - states_brx[:,:,0]).pow(2) + (center_y - states_bry[:,:,0]).pow(2)).sqrt()
         
         score = 1/dist * priority * ts_valid * is_visible
         
-        cam_map = score.argmax(dim = 1)
+        max_scores,cam_map = score.max(dim = 1)
+        
+        keep = max_scores.nonzero().squeeze()
+
         
         obj_times = [ts[idx] for idx in cam_map]
-        #obj_times = ts[cam_map]
+        
         
         #TODO need to unmap cameras to idxs here?
         
-        return cam_map,obj_times
+        return cam_map,obj_times,keep
     

@@ -60,7 +60,7 @@ db_param = {
 
 if __name__ == "__main__":
     run_config = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
-    gt_coll = "groundtruth_scene_2_57"
+    gt_coll = "groundtruth_scene_2_57" #"groundtruth_scene_1_130"
     TAG = "GT2" 
     n_GPUs = 4
     n_cameras = 17

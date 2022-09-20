@@ -60,20 +60,18 @@ class TrackState():
                 kf_params = pickle.load(f)
         
         kf_params["R"] = kf_params["R"].diag().diag()
-        kf_params["R"][0,0] *= 3**2
-        kf_params["R"][1,1] /= 6**2
+        kf_params["R"][0,0] = 25
+        kf_params["R"][1,1] = 3.5
         kf_params["R"][2,2] *= 2.25**2
         kf_params["R"][3,3] *= 2.25**2
         kf_params["R"][4,4] *= 1.5**2
         kf_params["mu_R"] *= 0
         
         kf_params["P"] = kf_params["P"].diag().diag()
-        kf_params["P"][0,0] *= 5**2.5
-        kf_params["P"][1,1] /= 2**2
-        kf_params["P"][5,5] *= 300
-        
-        kf_params["P"] *= 1
-        
+        kf_params["P"][0,0] = 25
+        kf_params["P"][1,1] = 3.5
+        kf_params["P"][5,5] = 10e4
+
         # with linear scaling
         # kf_params["Q"] = kf_params["Q"].diag().diag()
         # kf_params["Q"][0,0] /= 4**2
@@ -83,14 +81,14 @@ class TrackState():
 
         #with sqrt scaling
         kf_params["Q"] = kf_params["Q"].diag().diag()
-        kf_params["Q"][0,0] /= 4**4 
-        kf_params["Q"][1,1] /= 2
-        kf_params["Q"][2,2] *= 1
-        kf_params["Q"][3,3] *= 1
-        kf_params["Q"][4,4] /= 1.5
-        kf_params["Q"][5,5] /= 30
+        kf_params["Q"][0,0] = 0.002 #0.003
+        kf_params["Q"][1,1] = 0.50 #0.75 # just going slightly smaller #1.28 #   based on 9ft/s = 3 standard deviations     0.23 , 20
+        kf_params["Q"][2,2] = 0.01
+        kf_params["Q"][3,3] = 0.01
+        kf_params["Q"][4,4] = 0.01
+        kf_params["Q"][5,5] = 16
     
-        with open("./data/kf_params/kf_params_save3.cpkl","wb") as f:
+        with open("./data/kf_params/kf_params_save4.cpkl","wb") as f:
             pickle.dump(kf_params,f)
         
         

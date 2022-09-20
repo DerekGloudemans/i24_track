@@ -165,7 +165,23 @@ class Torch_KF(object):
             return dt
                     
         
-
+    def get_avg_speed(self):
+        
+        EB_v = self.X[self.D == 1,-1].clone()
+        WB_v = self.X[self.D == -1,-1].clone()
+        
+        # get avg speed
+        if len(EB_v) > 0:
+            EB_avg = EB_v.mean()
+        else:
+            EB_avg = self.mu_v / 2
+        
+        if len(WB_v) > 0:
+            WB_avg = WB_v.mean()
+        else:
+            WB_avg = self.mu_v / 2
+            
+        return EB_avg,WB_avg
         
     def add(self,detections,obj_ids,directions,times,init_speed = False,classes = None):
         """
@@ -362,8 +378,10 @@ class Torch_KF(object):
         # scale Q by the timestamp, assuming model error is linearly correlated to dt
         # in fact, this should be scaled at with the square root of dt, see https://stats.stackexchange.com/questions/49300/how-does-one-apply-kalman-smoothing-with-irregular-time-steps/585962#585962
         
-        if torch.min(dt) < 0:
-            print("We got a filtering problem \n\n\n Min dt is less than 0!: {}".format(dt))
+        # if torch.min(dt) < 0:
+        #     print("We got a filtering problem \n\n\n Min dt is less than 0!: {}".format(dt))
+        
+        
         #dt = torch.clamp(dt,min = 0.001)
         # try:
         #     step4 = step4 * dt/self.dt_default

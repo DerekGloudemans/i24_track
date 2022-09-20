@@ -16,7 +16,7 @@ from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
 
 
-from src.util.bbox                 import space_nms
+from src.util.bbox                 import space_nms,estimate_ts_offsets
 from src.util.misc                 import plot_scene,colors,Timer
 from i24_configparse               import parse_cfg
 from src.track.tracker             import get_Tracker, get_Associator
@@ -160,7 +160,7 @@ def main(collection_overwrite = None):
     tm.split("Init")
     
     run_config = "execute.config"       
-    #mask = ["p46c01","p46c02", "p46c03", "p46c04", "p46c05","p46c06"]
+    mask = ["p2c1", "p2c3","p2c5","p3c1"] #["p46c01","p46c02", "p46c03", "p46c04", "p46c05","p46c06"]
     mask = None
     
     # load parameters
@@ -277,7 +277,7 @@ def main(collection_overwrite = None):
     #          hg, colors,extents=dmap.cam_extents_dict, mask=mask,fr_num = frames_processed,detections = None)
     
     
-    
+    ts_offsets_all = []
     
     #%% Main Processing Loop
     start_time = time.time()
@@ -313,9 +313,17 @@ def main(collection_overwrite = None):
                         break #out of input
                     ts_trunc = [item - start_ts for item in timestamps]
                     
+                    # for obj in initializations:
+                    #     obj["timestamp"] -= start_ts
+                    initializations = None
+                        
+                    ### WARNING! TIME ERROR INJECTION
+                    # ts_trunc[3] += 0.05
+                    # ts_trunc[10] += .1
+                    
                     tm.split("Predict")
-                    camera_idxs, device_idxs, obj_times = dmap(tstate, ts_trunc)
-                    obj_ids, priors, selected_obj_idxs = tracker.preprocess(
+                    camera_idxs, device_idxs, obj_times, selected_obj_idxs = dmap(tstate, ts_trunc)
+                    obj_ids, priors, _ = tracker.preprocess(
                         tstate, obj_times)
                     
                     # slice only objects we care to pass to DeviceBank on this set of frames
@@ -344,10 +352,20 @@ def main(collection_overwrite = None):
                     detections, confs, classes, detection_cam_names, associations = dbank(
                         prior_stack, frames, pipeline_idx=pipeline_idx)
                     
+                    detections = detections.float()
+                    confs = confs.float()
+                    
                     # THIS MAY BE SLOW SINCE ITS DOUBLE INDEXING
                     detection_times = torch.tensor(
                         [ts_trunc[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
                     
+                    
+                    if False:
+                        ts_offsets = estimate_ts_offsets(detections,detection_cam_names,detection_times,tstate,hg)
+                        if ts_offsets is not None:
+                            ts_offsets_all.append(ts_offsets)
+                            #logger.info("Camera clock offset estimates: MAX {}s".format(max(np.max(np.array(ts_offsets.values())))),extra = ts_offsets)
+                        
                     tm.split("Associate",SYNC = True)
                     if pipeline_idx == 0:
                         detections_orig = detections.clone()
@@ -424,6 +442,8 @@ def main(collection_overwrite = None):
         
         #checkpoint(target_time,tstate,collection_overwrite)
         logger.info("Finished tracking over input time range. Shutting down.")
+        with open ("ts_offset_file.cpkl","wb") as f:
+            pickle.dump(ts_offsets_all,f)
         
         if True: # Flush tracker objects
             residual_objects,COD = tracker.flush(tstate)
@@ -440,6 +460,12 @@ def main(collection_overwrite = None):
         
     except KeyboardInterrupt:
         logger.debug("Keyboard Interrupt recieved. Initializing soft shutdown")
+
+        if True: # Flush tracker objects
+            residual_objects,COD = tracker.flush(tstate)
+            dbw.insert(residual_objects,cause_of_death = COD,time_offset = start_ts)
+            logger.info("Flushed all active objects to database",extra = metrics)
+            
         soft_shutdown(target_time, tstate,collection_overwrite,cleanup = [dbw,loader,dbank])
      
     
@@ -450,3 +476,65 @@ def main(collection_overwrite = None):
 if __name__ == "__main__":
     
     main()
+    
+    if True:
+        import cv2
+        import os
+        import requests
+        from datetime import datetime
+
+        def im_to_vid(directory,name = "video",push_to_dashboard = False): 
+            all_files = os.listdir(directory)
+            all_files.sort()
+            for filename in all_files:
+                filename = os.path.join(directory, filename)
+                img = cv2.imread(filename)
+                height, width, layers = img.shape
+                size = (width,height)
+                break
+            
+            n = 0
+            
+            now = datetime.now()
+            now = now.strftime("%Y-%m-%d_%H-%M-%S")
+            f_name = os.path.join("/home/derek/Desktop",'{}_{}.mp4'.format(now,name))
+            temp_name =  os.path.join("/home/derek/Desktop",'temp.mp4')
+            
+            out = cv2.VideoWriter(temp_name,cv2.VideoWriter_fourcc(*'mp4v'), 8, size)
+             
+            for filename in all_files:
+                filename = os.path.join(directory, filename)
+                img = cv2.imread(filename)
+                out.write(img)
+                print("Wrote frame {}".format(n))
+                n += 1
+                
+                # if n > 30:
+                #     break
+            out.release()
+            
+            os.system("/usr/bin/ffmpeg -i {} -vcodec libx264 {}".format(temp_name,f_name))
+            
+            if push_to_dashboard:
+                
+                
+                #snow = now.strftime("%Y-%m-%d_%H-%M-%S")
+                url = 'http://viz-dev.isis.vanderbilt.edu:5991/upload?type=boxes_raw'
+                files = {'upload_file': open(f_name,'rb')}
+                ret = requests.post(url, files=files)
+                print(f_name)
+                print(ret)
+                if ret.status_code == 200:
+                    print('Uploaded!')
+                    
+                    
+        file = "/home/worklab/Data/cv/KITTI/data_tracking_image_2/training/image_02/0000"
+        file = "/home/worklab/Documents/derek/track_i24/output/temp_frames"
+        file = "/home/worklab/Documents/derek/LBT-count/vid"
+        file = "/home/worklab/Documents/derek/3D-playground/video/6"
+        file = "/home/derek/Desktop/temp_frames"
+
+
+            
+        #file  = '/home/worklab/Desktop/temp'
+        im_to_vid(file,name = "latest_greatest",push_to_dashboard = True)

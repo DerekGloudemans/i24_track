@@ -50,7 +50,7 @@ class MCLoader():
         
         # parse timestamp_file
         with open(timestamp_file,"rb") as f:
-           _,timestamps,_ = pickle.load(f)
+           labels,timestamps,_ = pickle.load(f)
         print("Loaded ts file")
         
         self.timestamps = timestamps # dict
@@ -72,7 +72,16 @@ class MCLoader():
             self.device_loaders[dev_id].append(loader)
             self.cam_names[dev_id].append(key)
         
-        
+        self.INITIALIZE_GT = False
+        if self.INITIALIZE_GT: # parse labels 
+            first_ID_time = {}
+            
+            for frame in labels:
+                for obj in frame.values():
+                    if obj["id"] not in first_ID_time.keys(): 
+                        first_ID_time[obj["id"]] = obj
+                # for each ID, we find the earliest timestamp at which it exists
+            self.inits = first_ID_time
         
             
     def get_frames(self,target_time= None):
@@ -98,6 +107,14 @@ class MCLoader():
                     out.append(torch.stack(lis))
             #timestamps = torch.tensor([torch.tensor(item) for item in timestamps],dtype = torch.double)
             
+            initializations = []
+            if self.INITIALIZE_GT:
+                avg_time = sum(timestamps) / len(timestamps)
+                for obj in self.inits.values():
+                    if np.abs(obj["timestamp"] - avg_time) < 1/60.0:
+                        initializations.append(obj)
+                return out,timestamps, initializations
+
             return out,timestamps
     
         except: # end of input
