@@ -7,8 +7,8 @@ import os,shutil
 import time
 
 #os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
-os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
-os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
+#os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
+#os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
 
 from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
@@ -25,7 +25,7 @@ from src.detect.pipeline           import get_Pipeline
 from src.scene.devicemap           import get_DeviceMap
 from src.scene.homography          import HomographyWrapper,Homography
 from src.detect.devicebank         import DeviceBank
-from src.load.gpu_load_multi       import MCLoader, ManagerClock
+#from src.load.gpu_load_multi_presynced       import MCLoader, ManagerClock
 from src.db_write                  import WriteWrapperConf as WriteWrapper
 
 #from src.log_init                  import logger
@@ -160,7 +160,7 @@ def main(collection_overwrite = None):
     tm.split("Init")
     
     run_config = "execute.config"       
-    mask = ["p2c1", "p2c3","p2c5","p3c1"] #["p46c01","p46c02", "p46c03", "p46c04", "p46c05","p46c06"]
+    #mask = ["p2c1", "p2c3","p2c5","p3c1"] #["p46c01","p46c02", "p46c03", "p46c04", "p46c05","p46c06"]
     mask = None
     
     # load parameters
@@ -212,9 +212,10 @@ def main(collection_overwrite = None):
         #loader.get_frames()
         print("Using GT Loader")
     except:
-        from src.load.gpu_load_multi       import MCLoader
-        loader = MCLoader(in_dir, dmap.camera_mapping_file,dmap.cam_names, ctx,start_time = target_time)
+        from src.load.gpu_load_multi_presynced       import MCLoader
+        loader = MCLoader(in_dir,dmap.camera_mapping_file,dmap.cam_names, ctx,start_time = target_time,Hz = params.nominal_framerate)
         print("Using Multi Loader")
+        target_time = loader.start_time
     
     logger.debug("Initialized {} loader processes.".format(len(loader.device_loaders)))
     
@@ -251,16 +252,16 @@ def main(collection_overwrite = None):
 
     
     # get frames and timestamps
-    frames, timestamps = loader.get_frames(target_time = target_time)
+    frames, timestamps = loader.get_frames()
     
     # initialize processing sync clock
     start_ts = max(timestamps)
 
         
     nom_framerate = params.nominal_framerate 
-    clock  = ManagerClock(start_ts,params.desired_processing_speed, nom_framerate)
+    #clock  = ManagerClock(start_ts,params.desired_processing_speed, nom_framerate)
     target_time = start_ts
-    target_time = clock.tick()
+    #target_time = clock.tick()
     
     
     # initial sync-up of all cameras
@@ -305,7 +306,7 @@ def main(collection_overwrite = None):
                     
                     # get next frames and timestamps
                     tm.split("Get Frames")
-                    frames, timestamps = loader.get_frames(target_time)
+                    frames, timestamps = loader.get_frames()
                     #print(frames_processed,timestamps[0],target_time) # now we expect almost an exactly 30 fps framerate and exactly 30 fps target framerate
                     
                     if frames is None:
@@ -359,6 +360,12 @@ def main(collection_overwrite = None):
                     detection_times = torch.tensor(
                         [ts_trunc[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
                     
+                    keep = dmap.filter_by_extents(detections,detection_cam_names)
+                    detections = detections[keep,:]
+                    confs = confs[keep]
+                    classes = classes[keep]
+                    detection_times = detection_times[keep]
+                    detection_cam_names = [detection_cam_names[_] for _ in keep]
                     
                     if False:
                         ts_offsets = estimate_ts_offsets(detections,detection_cam_names,detection_times,tstate,hg)
@@ -395,7 +402,7 @@ def main(collection_overwrite = None):
             # optionally, plot outputs
             if params.plot:
                 tm.split("Plot")
-                detections = None
+                #detections = None
                 priors = None
                 plot_scene(tstate, 
                            frames, 
@@ -419,7 +426,7 @@ def main(collection_overwrite = None):
             print("\r{}        {:.3f}s       {:.2f}        {:.3f}              {:.3f}                {}               {}".format(frames_processed, time.time() - start_time,fps,max(timestamps), max_dev, len(tstate), len(dbw)), end='\r', flush=True)
         
             # get next target time
-            target_time = clock.tick()
+            #target_time = clock.tick()
             frames_processed += 1
             
     

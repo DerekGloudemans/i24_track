@@ -3,6 +3,7 @@ from i24_logger.log_writer import catch_critical,logger
 import configparser
 import torch
 import re
+import os
     
 
 
@@ -95,7 +96,7 @@ class DeviceMap():
         :param extents_file - (str) name of file with camera extents
         :return dict with same information in list form p1c1:[100,-10,400,120]
         """
-        
+        extents_file = os.path.join(os.environ["USER_CONFIG_DIRECTORY"],extents_file)
         cp = configparser.ConfigParser()
         cp.read(extents_file)
         extents = dict(cp["DEFAULT"])
@@ -122,6 +123,7 @@ class DeviceMap():
         :param mapping_file - (str) name of file with camera mapping
         :return dict with same information p1c1:3
         """
+        mapping_file = os.path.join(os.environ["USER_CONFIG_DIRECTORY"],mapping_file)
         cp = configparser.ConfigParser()
         cp.read(mapping_file)
         mapping = dict(cp["DEFAULT"])
@@ -308,3 +310,17 @@ class HeuristicDeviceMap(DeviceMap):
         
         return cam_map,obj_times,keep
     
+    def filter_by_extents(self,detections,det_cams):
+        """
+        returns a list of indices
+        """
+        
+        detection_extents = [torch.tensor(self.cam_extents_dict[cam_name]) for cam_name in det_cams]
+        detection_extents = torch.stack(detection_extents)
+     
+        keep = torch.where(detections[:,0] > detection_extents[:,0], 1,0) *    \
+                torch.where(detections[:,0] < detection_extents[:,1], 1,0) *   \
+                torch.where(detections[:,1] > detection_extents[:,2], 1,0) *   \
+                torch.where(detections[:,1] < detection_extents[:,1], 1,0)
+        keep = keep.nonzero().squeeze()
+        return keep

@@ -482,7 +482,7 @@ class SmartTracker(BaseTracker):
                         COD[key] = "Lost"
                     
             # 1. do nms on all objects to remove overlaps, where score = # of frames since initialized
-            if  hg is not None:
+            if  hg is not None and len(tstate) > 0:
                 ids,states = tstate(target_time = tstate.kf.T[0])  # so objects are at same time??
                 space = hg.state_to_space(states)
                 lifespans = tstate.get_lifespans()

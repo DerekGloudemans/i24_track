@@ -227,7 +227,7 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
 
     cv2.imwrite("/home/derek/Desktop/temp_frames/{}.png".format(str(fr_num).zfill(4)),cat_im*255)
     # plot
-    if False:
+    if True:
         cv2.imshow("frame", cat_im)
         # cv2.setWindowTitle("frame",str(self.frame_num))
         key = cv2.waitKey(1)
