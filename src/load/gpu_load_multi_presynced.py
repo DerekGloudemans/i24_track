@@ -276,7 +276,6 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
     returned_counter = 0
     while True:
         
-        
         file = os.path.join(directory,file)
         
         # initialize Decoder object
@@ -304,16 +303,20 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
                 
                 target_time = start_time + returned_counter * 1/Hz
                 
+                c = 0
                 while ts + tolerance < target_time:
                     pkt = nvc.PacketData()                    
                     rawSurface = nvDec.DecodeSingleSurface(pkt)
                     ts = pkt.pts /10e8
                     
+                    if rawSurface.Empty():
+                        break
                
                 
                 # Obtain NV12 decoded surface from decoder;
                 #raw_surface = nvDec.DecodeSingleSurface(pkt)
                 if rawSurface.Empty():
+                    logger.debug("raw surace empty")
                     break
     
                 # Convert to RGB interleaved;
@@ -351,6 +354,10 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
                 returned_counter += 1
                 q.put(frame)
             
+        
+        logger.debug("Finished handling frames from {}".format(file))
+
+            
         ### Get next file if there is one 
         # sort directory files (by timestamp)
         files = os.listdir(directory)
@@ -358,6 +365,8 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
         # filter out non-video_files and sort video files
         files = list(filter(  (lambda f: True if ".mkv" in f else False) ,   files))
         files.sort()
+        
+        logger.debug("Available files {}".format(files))
         
         # select next file that comes sequentially after last_file
         NEXTFILE = False

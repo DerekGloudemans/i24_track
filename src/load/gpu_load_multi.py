@@ -4,15 +4,10 @@ import PytorchNvCodec as pnvc
 
 
 import configparser
-import torch
 
 import os
-import numpy as np
 import time
 import re
-
-import cv2
-from PIL import Image
 
 from torchvision.transforms import functional as F
 

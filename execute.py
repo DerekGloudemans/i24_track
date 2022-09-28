@@ -6,9 +6,7 @@ import torch
 import os,shutil
 import time
 
-#os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
-#os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
-#os.environ["user_config_directory"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
+os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
 
 from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
@@ -360,12 +358,13 @@ def main(collection_overwrite = None):
                     detection_times = torch.tensor(
                         [ts_trunc[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
                     
-                    keep = dmap.filter_by_extents(detections,detection_cam_names)
-                    detections = detections[keep,:]
-                    confs = confs[keep]
-                    classes = classes[keep]
-                    detection_times = detection_times[keep]
-                    detection_cam_names = [detection_cam_names[_] for _ in keep]
+                    if True and pipeline_idx == 0:
+                        keep = dmap.filter_by_extents(detections,detection_cam_names)
+                        detections = detections[keep,:]
+                        confs = confs[keep]
+                        classes = classes[keep]
+                        detection_times = detection_times[keep]
+                        detection_cam_names = [detection_cam_names[_] for _ in keep]
                     
                     if False:
                         ts_offsets = estimate_ts_offsets(detections,detection_cam_names,detection_times,tstate,hg)
@@ -470,8 +469,11 @@ def main(collection_overwrite = None):
 
         if True: # Flush tracker objects
             residual_objects,COD = tracker.flush(tstate)
-            dbw.insert(residual_objects,cause_of_death = COD,time_offset = start_ts)
-            logger.info("Flushed all active objects to database",extra = metrics)
+            try:
+                dbw.insert(residual_objects,cause_of_death = COD,time_offset = start_ts)
+                logger.info("Flushed all active objects to database",extra = metrics)
+            except:
+                logger.warning("Failed to flush active objects at end of tracking. Is write_db = False?")
             
         soft_shutdown(target_time, tstate,collection_overwrite,cleanup = [dbw,loader,dbank])
      

@@ -28,15 +28,7 @@ class MCLoader():
     
     def __init__(self,directory,timestamp_file,mapping_file,ctx,resize = (1920,1080), Hz = 29.9):
         
-        cp = configparser.ConfigParser()
-        cp.read(mapping_file)
-        mapping = dict(cp["DEFAULT"])
-       
-        for key in mapping.keys():
-            parsed_val = int(mapping[key])
-            mapping[key] = parsed_val
-    
-        self.cam_devices = mapping
+        self._parse_device_mapping(mapping_file)
 
         cam_sequences = {}        
         for file in os.listdir(directory):
@@ -83,7 +75,25 @@ class MCLoader():
                 # for each ID, we find the earliest timestamp at which it exists
             self.inits = first_ID_time
         
-            
+        
+    def _parse_device_mapping(self,mapping_file):
+        """
+        This function is likely to change in future versions. For now, config file is expected to 
+        express camera device as integer e.g. p1c1=3
+        :param mapping_file - (str) name of file with camera mapping
+        :return dict with same information p1c1:3
+        """
+        mapping_file = os.path.join(os.environ["USER_CONFIG_DIRECTORY"],mapping_file)
+        cp = configparser.ConfigParser()
+        cp.read(mapping_file)
+        mapping = dict(cp["DEFAULT"])
+       
+        for key in mapping.keys():
+            parsed_val = int(mapping[key])
+            mapping[key] = parsed_val
+    
+        self.cam_devices = mapping       
+        
     def get_frames(self,target_time= None):
         try:
             # accumulators
