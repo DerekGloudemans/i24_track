@@ -3,7 +3,7 @@ from i24_configparse import parse_cfg
 import _pickle as pickle
 import torch
 import numpy as np
-
+import copy
 
 
 
@@ -81,12 +81,29 @@ class TrackState():
 
         #with sqrt scaling
         kf_params["Q"] = kf_params["Q"].diag().diag()
-        kf_params["Q"][0,0] = 0.002 #0.003
+        kf_params["Q"][0,0] = 0.0001 #0.003
         kf_params["Q"][1,1] = 0.50 #0.75 # just going slightly smaller #1.28 #   based on 9ft/s = 3 standard deviations     0.23 , 20
         kf_params["Q"][2,2] = 0.01
         kf_params["Q"][3,3] = 0.01
         kf_params["Q"][4,4] = 0.01
         kf_params["Q"][5,5] = 16
+        
+        if self.per_class_model:
+            # expand Q to a third dimension with one entry per class
+            Q = []
+            for i in range(8):
+                temp = copy.deepcopy(kf_params["Q"] )
+                
+                if i == 4:
+                    temp[1,1] = 0.05 #0.1
+                    #temp[5,5] = 12
+                    
+                # elif i == 5:
+                #     temp[1,1] = 0.2
+                #     temp[5,5] = 7
+                Q.append(temp)
+                
+            kf_params["Q"] = torch.stack(Q)
     
         with open("./data/kf_params/kf_params_save4.cpkl","wb") as f:
             pickle.dump(kf_params,f)
@@ -194,7 +211,12 @@ class TrackState():
         return self.kf.get_dt(target_times,idxs = idxs)
     
     def predict(self,dt = None):
-        self.kf.predict(dt = dt)
+        if self.per_class_model:
+            classes = self.get_classes()
+            self.kf.predict(dt = dt,classes = classes)
+        else:
+            self.kf.predict(dt = dt)
+            
             
     def update(self,detections,obj_ids,classes,confs,measurement_idx = 1,high_confidence_threshold = 0):
         if len(obj_ids) > 0:

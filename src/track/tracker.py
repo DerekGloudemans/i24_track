@@ -2,9 +2,9 @@ import numpy as np
 import torch
 from scipy.optimize import linear_sum_assignment
 
-from ..util.bbox import im_nms,space_nms
+from ..util.bbox import im_nms,space_nms, state_nms
 from i24_configparse import parse_cfg
-
+from torchvision.ops.boxes import box_iou
 
 def get_Tracker(name):
     """
@@ -399,6 +399,12 @@ class SmartTracker(BaseTracker):
                 update_detections = detections[update_idxs,:]
                 update_classes = classes[update_idxs]
                 update_confs = confs[update_idxs]
+                
+                if False:
+                    lifespans = tstate.get_lifespans()
+                    update_lifespans = torch.tensor([lifespans[id] for id in update_ids])
+                    update_detections = self.de_overlap(update_detections,update_lifespans, hg)
+                
                 tstate.update(update_detections[:,:5],update_ids,update_classes,update_confs, measurement_idx = measurement_idx,high_confidence_threshold = self.sigma_high)
             
             # collect unassigned detections
@@ -427,7 +433,8 @@ class SmartTracker(BaseTracker):
                 new_times = detection_times[new_idxs]
                 
                 # create direction tensor based on location
-                directions = torch.where(new_detections[:,1] > 60, torch.zeros(new_confs.shape)-1,torch.ones(new_confs.shape))
+                #directions = torch.where(new_detections[:,1] > 60, torch.zeros(new_confs.shape)-1,torch.ones(new_confs.shape))
+                directions = new_detections[:,5]
                 tstate.add(new_detections,directions,new_times,new_classes,new_confs,init_speed = True)
                 
         # if no detections, increment fsld in all tracked objects
@@ -482,12 +489,12 @@ class SmartTracker(BaseTracker):
                         COD[key] = "Lost"
                     
             # 1. do nms on all objects to remove overlaps, where score = # of frames since initialized
-            if  hg is not None and len(tstate) > 0:
+            if hg is not None and len(tstate) > 0:
                 ids,states = tstate(target_time = tstate.kf.T[0])  # so objects are at same time??
-                space = hg.state_to_space(states)
+                #space = hg.state_to_space(states)
                 lifespans = tstate.get_lifespans()
                 scores = torch.tensor([lifespans[id.item()] for id in ids])
-                keep = space_nms(space,scores.float(),threshold = self.iou_max)
+                keep = state_nms(states,scores.float(),threshold =self.iou_max)
                 keep_ids = ids[keep]
                 
                 removals = ids.tolist()
@@ -499,6 +506,8 @@ class SmartTracker(BaseTracker):
                     out_objs[key] = objs[key] 
                     COD[key] = "Overlap"
                     
+            
+                  
             # 2. Remove anomalies
             ids,states = tstate()
             removals = []
@@ -566,3 +575,70 @@ class SmartTracker(BaseTracker):
         for id in ids:
             COD[id] = "Active at End"
         return stale_objects, COD
+    
+    
+    def de_overlap(ids,boxes,lifespans,hg, x_buffer = 2 , y_buffer = 1):
+                         
+         
+            
+          first = hg.state_to_space(boxes.clone())
+          boxes_new = torch.zeros([first.shape[0],4],device = first.device)
+          boxes_new[:,0] = torch.min(first[:,0:4,0],dim = 1)[0] - x_buffer
+          boxes_new[:,2] = torch.max(first[:,0:4,0],dim = 1)[0] - y_buffer
+          boxes_new[:,1] = torch.min(first[:,0:4,1],dim = 1)[0] + x_buffer
+          boxes_new[:,3] = torch.max(first[:,0:4,1],dim = 1)[0] + y_buffer
+          
+          # calc x overlap and y overlap for all pairs
+          bn0 = boxes_new.shape[0]
+          a = boxes_new.unsqueeze(0).expand(bn0,bn0,4)
+          b = boxes_new.unsqueeze(1).expand(bn0,bn0,4)
+          
+          # x_overlap  - shift of box a in + direction required to remove overlap
+          x_overlap =   b[:,:,2] - a[:,:,0]
+          x_overlap = torch.clamp(x_overlap,min = 0)
+    
+          # x_overlap2 - shift of box a in - direction required to remove overlap (so values are negative)
+          x_overlap2 =  b[:,:,0] - a[:,:,2]
+          x_overlap2 = torch.clamp(x_overlap2,max = 0)
+    
+          # y_overlap - shift of box a in + direction required to remove overlap
+          y_overlap = b[:,:,3] - a[:,:,1]
+          y_overlap = torch.clamp(y_overlap,min = 0)
+          
+          y_overlap2 = b[:,:,1] - a[:,:,3]
+          y_overlap2 = torch.clamp(y_overlap2,max = 0)
+    
+          ## any of these shifts will fix the overlap, so we simply need to select the minimum magnitude shift to fix the problem       
+          
+          
+          
+          x_shifts = torch.where(x_overlap < torch.abs(x_overlap2),x_overlap,x_overlap2)
+          y_shifts = torch.where(y_overlap < torch.abs(y_overlap2),y_overlap,y_overlap2)
+          
+          x_shifts *= (1-torch.eye(bn0))
+          y_shifts *= (1-torch.eye(bn0))
+          
+          x_mask = torch.where(torch.abs(x_shifts) < torch.abs(y_shifts),1,0)
+          
+          x_shifts *= x_mask
+          y_shifts *= (1-x_mask)
+          
+          a_lifespans = lifespans.unsqueeze(0).expand(bn0,bn0)
+          b_lifespans = lifespans.unsqueeze(1).expand(bn0,bn0)
+          sum_lifespans = a_lifespans + b_lifespans
+          
+          wx_shifts = x_shifts * (b_lifespans/sum_lifespans)
+          wy_shifts = y_shifts * (b_lifespans/sum_lifespans)
+          
+          # but for each a we need only do the largest x and largest y shift
+          wx_shifts = torch.max(wx_shifts,dim = 1)[0] 
+          wy_shifts = torch.max(wy_shifts,dim = 1)[0] 
+          
+          boxes[:,0] += wx_shifts * 0.5
+          boxes[:,1] += wy_shifts * 0.5
+          
+          return boxes
+          # for idx in range(bn0):
+          #     id = ids[idx].item()
+          #     tstate.kf.X[tstate.kf.obj_idxs[id],0] += wx_shifts[idx]
+          #     tstate.kf.X[tstate.kf.obj_idxs[id],1] += wy_shifts[idx]

@@ -29,7 +29,7 @@ class Timer:
         
         self.start_time= time.time()
         self.split_time = None
-        self.synchronize = True
+        self.synchronize = False
         
     def split(self,section,SYNC = False):
 
@@ -108,6 +108,7 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
 
         # get the reported position of each object from tstate for that time
         ids, boxes = tstate(ts[f_idx],with_direction=True)
+        lifespans = tstate.get_lifespans()
         #ids,boxes = tstate()
         classes = torch.tensor([class_by_id[id.item()] for id in ids])
         
@@ -128,8 +129,10 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
             boxes = boxes[keep_obj,:]
             ids = ids[keep_obj]
             classes = classes[keep_obj]
-            classes = [hg.hg1.class_dict[cls.item()] for cls in classes]
-                            
+            try:
+                classes = [hg.hg1.class_dict[cls.item()] for cls in classes]
+            except:   
+                classes = [hg.class_dict[cls.item()] for cls in classes]
             
         # convert frame into cv2 image
         fr = (denorm(frames[f_idx]).numpy().transpose(1, 2, 0)*255)[:,:,::-1]
@@ -179,10 +182,11 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
             #color_slice = (0,255,0)
             
             fr = hg.plot_state_boxes(
-                fr.copy(), boxes, name=cam_names[f_idx], labels=labels,thickness = 3, color = color_slice)
+                fr.copy(), boxes, name=cam_names[f_idx], labels=None,thickness = 3, color = color_slice)
 
         # plot original detections
         if detections is not None:
+            xmin, xmax, ymin,ymax = extents[cam_names[f_idx]]
             keep_det= torch.mul(torch.where(detections[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
                 detections[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1)
             detections_selected = detections[keep_det,:]

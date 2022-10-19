@@ -76,8 +76,9 @@ class MCLoader():
         cam_sequences = {}        
         for file in os.listdir(directory):
             sequence = os.path.join(directory,file)
-            cam_name = re.search("P\d\dC\d\d",sequence).group(0)
-            cam_sequences[cam_name] = sequence
+            if os.path.isdir(sequence):
+                cam_name = re.search("P\d\dC\d\d",sequence).group(0)
+                cam_sequences[cam_name] = sequence
         
         if start_time is None:
             start_time = self.get_start_time(cam_names,cam_sequences)
@@ -87,12 +88,12 @@ class MCLoader():
         # device loader is a list of lists, with list i containing all loaders for device i (hopefully in order but not well enforced by dictionary so IDK)
         self.device_loaders = [[] for i in range(torch.cuda.device_count())]
         for key in cam_names:
-            dev_id = self.cam_devices[key.lower()]
+            dev_id = self.cam_devices[key.lower().split("_")[0]]
             
             try:
-                sequence = cam_sequences[key]
+                sequence = cam_sequences[key.split("_")[0]]
             except:
-                sequence = cam_sequences[key.upper()]
+                sequence = cam_sequences[key.upper().split("_")[0]]
             
             loader = GPUBackendFrameGetter(sequence,dev_id,ctx,resize = resize,start_time = start_time, Hz = Hz)
             
@@ -150,12 +151,12 @@ class MCLoader():
     def get_start_time(self,cam_names,cam_sequences):
         all_ts = []
         for key in cam_names:
-            gpuID = self.cam_devices[key.lower()]
+            gpuID = self.cam_devices[key.lower().split("_")[0]]
             
             try:
-                directory = cam_sequences[key]
+                directory = cam_sequences[key.split("_")[0]]
             except:
-                directory = cam_sequences[key.upper()]
+                directory = cam_sequences[key.upper().split("_")[0]]
                 
             files = os.listdir(directory)
             

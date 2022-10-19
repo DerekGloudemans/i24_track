@@ -1,7 +1,7 @@
 import torch
 from torchvision.ops import roi_align
 from i24_configparse import parse_cfg
-from ..util.bbox import im_nms,space_nms
+from ..util.bbox import im_nms,space_nms,state_nms
 
 # imports for specific detectors
 from .retinanet_3D.retinanet.model             import resnet50 as Retinanet3D
@@ -279,25 +279,27 @@ class RetinanetFullFramePipelineMulti(DetectPipeline):
             
             # Use the guess and refine method to get box heights
             detections = self.hg.im_to_state(detections,name = detection_cam_names,classes = classes)
-            detections = self.hg.state_to_space(detections)
+            #detections = self.hg.state_to_space(detections)
             # state space NMS
-            mask           = space_nms(detections,confs,threshold = self.space_nms_iou)
+            mask           = state_nms(detections,confs,threshold = self.space_nms_iou)
             confs          = confs[mask]
             classes        = classes[mask]
-            detections     = detections[mask,:,:]
+            detections     = detections[mask,:]
             detection_idxs = detection_idxs[mask]
             detection_cam_names = [self.cam_names[i] for i in detection_idxs]
             
-            if len(confs) > 0:
-                detections = self.hg.space_to_state(detections)
-        
-        # finally, move back to cpu
-        detections = detections.cpu()
-        confs = confs.cpu()
-        classes = classes.cpu()
-                
-        return [detections,confs,classes,detection_cam_names]   
+        if len(confs) > 0:
+            #detections = self.hg.space_to_state(detections)
     
+            # finally, move back to cpu
+            detections = detections.cpu()
+            confs = confs.cpu()
+            classes = classes.cpu()
+                    
+            return [detections,confs,classes,detection_cam_names]   
+    
+        else:
+            return torch.empty([0,6]) , torch.empty(0), torch.empty(0), []
 
     
 class RetinanetFullFramePipelineEmb(DetectPipeline):
@@ -366,9 +368,9 @@ class RetinanetFullFramePipelineEmb(DetectPipeline):
             
             # Use the guess and refine method to get box heights
             detections = self.hg.im_to_state(detections,name = detection_cam_names,classes = classes)
-            detections = self.hg.state_to_space(detections)
+            #detections = self.hg.state_to_space(detections)
             # state space NMS
-            mask           = space_nms(detections,confs,threshold = self.space_nms_iou)
+            mask           = state_nms(detections,confs,threshold = self.space_nms_iou)
             confs          = confs[mask]
             classes        = classes[mask]
             detections     = detections[mask,:,:]
@@ -745,6 +747,25 @@ class RetinanetCropFramePipelineMulti(DetectPipeline):
         self.tm.split("Pre:compute_crops",SYNC=True)
         crop_boxes = self._get_crop_boxes(objs_im)
         
+        #2b. Select only crops entirely within frame
+        # mask = (crop_boxes[:,2] > 0).int() * (crop_boxes[:,0] < frames.shape[3]).int() * (crop_boxes[:,3] > 0).int() * (crop_boxes[:,1] < frames.shape[2]).int()
+        # mask = mask.nonzero().squeeze()
+        
+        # if len(mask) == len(ids):
+        #     crop_priors = priors
+        # else:
+        #     crop_boxes = crop_boxes[mask,:]
+        #     crop_priors = []
+        #     for lis in priors:
+        #         new_lis = [lis[idx] for idx in mask]
+        #         try:
+        #             new_lis = torch.stack(new_lis)
+        #         except:
+        #             pass
+        #         crop_priors.append(lis)
+                
+        #     frame_idxs = frame_idxs[mask]
+        
         # 3. Crop
         self.tm.split("Pre:crop",SYNC=True)
         cidx = frame_idxs.unsqueeze(1).to(self.device).double()
@@ -786,7 +807,7 @@ class RetinanetCropFramePipelineMulti(DetectPipeline):
         classes = classes[row_idxs,top_idxs] 
         
         
-        # 3. Convert to space    #### THIS IS THE SLOW ONE!!!
+        # 3. Convert to space    #### THIS IS THE SLOW ONE!!!  ## Note taht we could convert base only for the selection and then do second pass for selected ones only (about 1/2 speedup)
         self.tm.split("Post:->space",SYNC=True)  
         n_objs = reg_boxes.shape[0]
         cam_names_repeated = [cam for cam in cam_names for i in range(reg_boxes.shape[1])]

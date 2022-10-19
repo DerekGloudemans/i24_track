@@ -66,7 +66,7 @@ class DeviceMap():
         
         # load self.cam_devices
         self._parse_device_mapping(self.camera_mapping_file)
-        self.cam_devices = [self.cam_devices[cam_name] for cam_name in self.cam_names]
+        self.cam_devices = [self.cam_devices[cam_name.split("_")[0]] for cam_name in self.cam_names]
         
         
         # note that self.cam_names is THE ordering of cameras, and all other camera orderings should be relative to this ["p1c1","p1c2", etc]
@@ -104,7 +104,7 @@ class DeviceMap():
         removals = []
         for key in extents.keys():
             try:
-                parsed_val = [int(item) for item in extents[key][1:-1].split(",")]
+                parsed_val = [int(item) for item in extents[key].split(",")]
                 extents[key] = parsed_val
 
             except ValueError: # adding a $ to the end of each camera to be excluded will trigger this error and thus the camera will not be included
@@ -128,11 +128,16 @@ class DeviceMap():
         cp.read(mapping_file)
         mapping = dict(cp["DEFAULT"])
        
+        new_mapping = {}
         for key in mapping.keys():
             parsed_val = int(mapping[key])
-            mapping[key] = parsed_val
+            new_mapping[key] = parsed_val
+            #wb_key = key + "_wb"
+            #new_mapping[wb_key] = parsed_val
+            #eb_key = key + "_eb"
+            #new_mapping[eb_key] = parsed_val
     
-        self.cam_devices = mapping       
+        self.cam_devices = new_mapping       
     
     def map_cameras(self):
         raise NotImplementedError

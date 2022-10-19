@@ -6,7 +6,8 @@ import torch
 import os,shutil
 import time
 
-os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
+#os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
+os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_batch_6"
 
 from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
@@ -14,7 +15,7 @@ from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
 
 
-from src.util.bbox                 import space_nms,estimate_ts_offsets
+from src.util.bbox                 import state_nms,estimate_ts_offsets
 from src.util.misc                 import plot_scene,colors,Timer
 from i24_configparse               import parse_cfg
 from src.track.tracker             import get_Tracker, get_Associator
@@ -25,6 +26,8 @@ from src.scene.homography          import HomographyWrapper,Homography
 from src.detect.devicebank         import DeviceBank
 #from src.load.gpu_load_multi_presynced       import MCLoader, ManagerClock
 from src.db_write                  import WriteWrapperConf as WriteWrapper
+
+from src.scene.curvilinear_homography import Curvilinear_Homography 
 
 #from src.log_init                  import logger
 #from i24_logger.log_writer         import logger,catch_critical,log_warnings
@@ -221,7 +224,8 @@ def main(collection_overwrite = None):
     
     # initialize Homography object
     hg = HomographyWrapper(hg1 = params.eb_homography_file,hg2 = params.wb_homography_file)
-     
+    hg = Curvilinear_Homography("./data/homography/new_hg_save.cpkl",downsample = 2) 
+    
     if params.track:
         # initialize pipelines
         pipelines = params.pipelines
@@ -295,7 +299,9 @@ def main(collection_overwrite = None):
 
             
             if params.track: # shortout actual processing
-                
+            
+               
+            
                 # select pipeline for this frame
                 pidx = frames_processed % len(params.pipeline_pattern)
                 pipeline_idx = params.pipeline_pattern[pidx]
@@ -339,10 +345,11 @@ def main(collection_overwrite = None):
                     prior_stack = dmap.route_objects(
                         obj_ids, priors, device_idxs, camera_idxs, run_device_ids=params.cuda_devices)
             
-                    # test on a single on-process pipeline
-                    # pipelines[pipeline_idx].set_device(1)
-                    # pipelines[pipeline_idx].set_cam_names(dmap.gpu_cam_names[1])
-                    # test = pipelines[pipeline_idx](frames[1],prior_stack[1])
+                    if False:#  and frames_processed == 173:
+                        # test on a single on-process pipeline
+                        pipelines[pipeline_idx].set_device(1)
+                        pipelines[pipeline_idx].set_cam_names(dmap.gpu_cam_names[1])
+                        test = pipelines[pipeline_idx](frames[1],prior_stack[1])
             
             
                     # TODO - full frame detections should probably get full set of objects?
@@ -377,8 +384,8 @@ def main(collection_overwrite = None):
                         detections_orig = detections.clone()
                         if True and len(detections) > 0:
                             # do nms across all device batches to remove dups
-                            space_new = hg.state_to_space(detections)
-                            keep = space_nms(space_new,confs)
+                            #space_new = hg.state_to_space(detections)
+                            keep = state_nms(detections,confs)
                             detections = detections[keep,:]
                             classes = classes[keep]
                             confs = confs[keep]

@@ -72,9 +72,11 @@ class Torch_KF(object):
             self.P0 = INIT["P"].unsqueeze(0) 
             self.F  = INIT["F"]
             self.H  = INIT["H"]
-            self.Q  = INIT["Q"].unsqueeze(0)
-            self.R  = INIT["R"].unsqueeze(0) 
             
+            self.Q  = INIT["Q"]
+            if self.Q.dim() == 2: self.Q = self.Q.unsqueeze(0)
+            
+            self.R  = INIT["R"].unsqueeze(0) 
             self.mu_Q = INIT["mu_Q"].unsqueeze(0) 
             self.mu_R = INIT["mu_R"].unsqueeze(0)
             
@@ -346,7 +348,7 @@ class Torch_KF(object):
         return id_list,states
          
     
-    def predict(self,dt = None):
+    def predict(self,dt = None, classes = None):
         """
         Description:
         -----------
@@ -373,7 +375,18 @@ class Torch_KF(object):
         step1 = torch.bmm(F_rep,self.P.float())
         step2 = F_rep.transpose(1,2)
         step3 = torch.bmm(step1,step2)
-        step4 = self.Q.repeat(len(self.P),1,1)
+        
+        if classes is not None:
+            # classes is a dictionary
+            
+            cls_vec = torch.zeros(len(self.P))
+            for key in classes:
+                cls_vec[self.obj_idxs[key]] = classes[key]
+            cls_vec = cls_vec.long()
+            step4 = self.Q[cls_vec,:,:]
+        
+        else:
+            step4 = self.Q.repeat(len(self.P),1,1)
         
         # scale Q by the timestamp, assuming model error is linearly correlated to dt
         # in fact, this should be scaled at with the square root of dt, see https://stats.stackexchange.com/questions/49300/how-does-one-apply-kalman-smoothing-with-irregular-time-steps/585962#585962

@@ -30,12 +30,15 @@ def im_nms(detections,scores,threshold = 0.8,groups = None):
 
 def space_nms(detections,scores,threshold = 0.1):
         """
-        Performs non-maximal supression on boxes given in state formulation
+        Performs non-maximal supression on boxes given in state formulation. Now 
+        deprecated in favor of state_nms 
         detections - [d,8,3] array of boxes in  space formulation
         scores - [d] array of box scores in range [0,1]
         threshold - float in range [0,1], boxes with IOU overlap > threshold are pruned
         returns - idxs - indexes of boxes to keep
         """
+        
+        raise UserWarning("space_nms is deprecated. Use state_nms instead")
         
         # convert into xmin ymin xmax ymax form        
         boxes_new = torch.zeros([detections.shape[0],4],device = detections.device)
@@ -46,6 +49,41 @@ def space_nms(detections,scores,threshold = 0.1):
                 
         idxs = nms(boxes_new,scores,threshold)
         return idxs
+
+def state_nms(boxes,scores,threshold  = 0.1):
+    """
+    Some fool designed space_nms assuming that the state axes would always be orthogonal to the space axes. I am that fool
+    This is not the case. state_nms creates boxes expressed as 4 points in state coordinates rather than space coordinates
+    so that nms can be performed without error. It will also serve as a drop-in replacement for the old space_nms
+    
+    boxes- [d,6] array of boxes in  state formulation
+    scores - [d] array of box scores in range [0,1]
+    threshold - float in range [0,1], boxes with IOU overlap > threshold are pruned
+    returns - idxs - indexes of boxes to keep
+    """
+
+    d = boxes.shape[0]
+    intermediate_boxes = torch.zeros([d,4,2], device = boxes.device)
+    intermediate_boxes[:,0,0] = boxes[:,0] 
+    intermediate_boxes[:,0,1] = boxes[:,1] - boxes[:,3]/2.0
+    intermediate_boxes[:,1,0] = boxes[:,0] 
+    intermediate_boxes[:,1,1] = boxes[:,1] + boxes[:,3]/2.0
+    
+    intermediate_boxes[:,2,0] = boxes[:,0] + boxes[:,2]*boxes[:,5]
+    intermediate_boxes[:,2,1] = boxes[:,1] + boxes[:,2]*boxes[:,5] - boxes[:,3]/2.0
+    intermediate_boxes[:,3,0] = boxes[:,0] + boxes[:,2]*boxes[:,5]
+    intermediate_boxes[:,3,1] = boxes[:,1] + boxes[:,2]*boxes[:,5] + boxes[:,3]/2.0
+
+    boxes_new = torch.zeros([boxes.shape[0],4],device = boxes.device)
+    boxes_new[:,0] = torch.min(intermediate_boxes[:,0:4,0],dim = 1)[0]
+    boxes_new[:,2] = torch.max(intermediate_boxes[:,0:4,0],dim = 1)[0]
+    boxes_new[:,1] = torch.min(intermediate_boxes[:,0:4,1],dim = 1)[0]
+    boxes_new[:,3] = torch.max(intermediate_boxes[:,0:4,1],dim = 1)[0]
+            
+    idxs = nms(boxes_new,scores,threshold)
+    return idxs
+
+
 
 def md_iou(a,b):
     """
