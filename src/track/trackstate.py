@@ -141,6 +141,9 @@ class TrackState():
             return state_dict
         
     def add(self,detections,directions,detection_times,labels,scores,init_speed = False):
+        """
+        detections - [d,5] tensor with x,y,l,w,h
+        """
         
         new_ids = []
         

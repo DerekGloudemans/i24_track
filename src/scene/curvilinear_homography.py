@@ -90,7 +90,8 @@ class Curvilinear_Homography():
                  save_file = None,
                  space_dir = None,
                  im_dir = None,
-                 downsample = 1):
+                 downsample = 1,
+                 fill_gaps = False):
         """
         Initializes homography object.
         
@@ -163,6 +164,9 @@ class Curvilinear_Homography():
                     6:"motorcycle",
                     7:"trailer"
                     }
+        
+        if fill_gaps:
+            self.fill_gaps()
         
     def save(self,save_file):
         with open(save_file,"wb") as f:
@@ -899,7 +903,7 @@ class Curvilinear_Homography():
             
             #print("Max step: {}".format(max_change))
          
-        print("Newton method took {}s for {} points".format(time.time() - start,points.shape[0]))
+        #print("Newton method took {}s for {} points".format(time.time() - start,points.shape[0]))
         return guess_u
             
     
@@ -1054,12 +1058,14 @@ class Curvilinear_Homography():
         """
         # if name is None:
         #     name = list(self.correspondence.keys())[0]
+        d = points.shape[0]
+        if d == 0:
+            return torch.empty(0,8,3)
         
         if type(name) == list and len(name[0].split("_")) == 1:
             temp_name = [sub_n+ "_WB" for sub_n in name]
             name = temp_name
             
-        d = points.shape[0]
         n_pts = points.shape[1]
         # convert points into size [dm,3]
         points = points.view(-1,2).double()
@@ -1117,19 +1123,25 @@ class Curvilinear_Homography():
        
        name      - list of correspondence key names
        direction - "EB" or "WB" - speecifies which correspondence to use
-       points    - [d,m,3] array of points in 3-space
+       points    - [d,m,3] array of points in 3-space, m is probably 8
        RETURN:     [d,m,2] array of points in 2-space
        """
-       if name is None:
-           name = list(self.correspondence.keys())[0]
        
        d = points.shape[0]
+       if d == 0:
+           return torch.empty(0,8,2)
+       
+       if name is None:
+           name = list(self.correspondence.keys())[0]
+       elif type(name) == list and len(name[0].split("_")) == 1:
+           name = self.get_direction(points,name)[0]
+       
        n_pts = points.shape[1]
        # get directions and append to names
-
-       if type(name) == list and len(name[0].split("_")) == 1:
-           name = self.get_direction(points,name)[0]
-
+       
+       
+       
+       
            
        # convert points into size [dm,4]
        points = points.view(-1,3)
@@ -1246,6 +1258,9 @@ class Curvilinear_Homography():
         d = points.shape[0]
         n_pts = points.shape[1]
         
+        if d == 0:
+            return torch.empty([0,6], device = points.device)
+        
         new_pts = torch.zeros([d,6],device = points.device)
         
         # rear center bottom of vehicle is (x,y)
@@ -1311,6 +1326,10 @@ class Curvilinear_Homography():
         
         # 1. get x-y coordinate of closest point along spline (i.e. v = 0)
         d = points.shape[0]
+        
+        if d == 0:
+            return torch.empty([0,8,3], device = points.device)
+        
         closest_median_point_x, closest_median_point_y = interpolate.splev(points[:,0].cpu(),self.median_tck)
         
         # 2. get derivative of spline at that point
@@ -1554,7 +1573,21 @@ class Curvilinear_Homography():
         cv2.waitKey(0)
         cv2.destroyAllWindows()
     
-        
+    def fill_gaps(self):
+        additions = {}
+        for key in self.correspondence.keys():
+            base, direction = key.split("_")
+            if direction == "EB":
+                new_key = base + "_WB"
+                if new_key not in self.correspondence.keys():
+                    additions[new_key] = self.correspondence[key].copy()
+            elif direction == "WB":
+                new_key = base + "_EB"
+                if new_key not in self.correspondence.keys():
+                    additions[new_key] = self.correspondence[key].copy()
+        print("Adding {} missing correspondences: {}".format(len(additions),list(additions.keys())))
+        for key in additions.keys():
+            self.correspondence[key] = additions[key]
         
     def plot_homography(self,
                         MEDIAN  = False,
@@ -1716,5 +1749,6 @@ if __name__ == "__main__":
 
     hg = Curvilinear_Homography(save_file = save_file,space_dir = space_dir, im_dir = im_dir)
     hg.test_transformation(im_dir)
+    hg.fill_gaps()
     #hg._generate_extents_file(im_dir)
     #hg._generate_mask_images(im_dir)

@@ -55,7 +55,14 @@ class DeviceMap():
         # DEREK TODO does this help
         #cam_names.sort()
         
-        self.cam_names = cam_names
+        self.cam_names_extended = cam_names
+        
+        self.cam_names = []
+        for n in self.cam_names_extended:
+            n_trunc = n.split("_")[0]
+            if n_trunc not in self.cam_names:
+                self.cam_names.append(n_trunc)
+        
         self.cam_extents_dict = self.cam_extents.copy()
         self.cam_extents = torch.tensor(extents)
         
@@ -150,6 +157,8 @@ class DeviceMap():
         if len(cam_map) == 0:
             return []
         
+        
+        
         gpu_map = torch.tensor([self.cam_devices[camera] for camera in cam_map])
         return gpu_map
     
@@ -229,9 +238,9 @@ class HeuristicDeviceMap(DeviceMap):
                     "c05":100,
                     "c06":1}
         try:
-            self.priority = torch.tensor([priority_dict[re.search("c\d",cam).group(0)] for cam in self.cam_names])
+            self.priority = torch.tensor([priority_dict[re.search("c\d",cam).group(0)] for cam in self.cam_names_extended])
         except KeyError:
-            self.priority = torch.tensor([priority_dict[re.search("c\d\d",cam).group(0)] for cam in self.cam_names])
+            self.priority = torch.tensor([priority_dict[re.search("c\d\d",cam).group(0)] for cam in self.cam_names_extended])
             
     @catch_critical()
     def map_cameras(self,tstate,ts):
@@ -256,7 +265,8 @@ class HeuristicDeviceMap(DeviceMap):
         ids,states = tstate() # [n_objects,state_size]
         
         # store useful dimensions
-        n_c = len(self.cam_devices)
+        #n_c = len(self.cam_devices)
+        n_c = len(self.cam_names_extended)
         n_o = len(ids)
         
         if n_o == 0:
@@ -283,9 +293,11 @@ class HeuristicDeviceMap(DeviceMap):
         ## create ts_valid, [n_objs,n_cameras]
         object_ts = - tstate.get_dt(0) # time at which each object was left
         object_ts = object_ts.unsqueeze(1).expand(n_o,n_c)
-        frame_ts = torch.tensor(ts).unsqueeze(0).expand(n_o,n_c)
-        ts_valid = torch.where(object_ts-frame_ts < 0, torch.ones([n_o,n_c]),torch.zeros([n_o,n_c]))
-        
+        try:
+            frame_ts = torch.tensor(ts).unsqueeze(0).expand(n_o,n_c)
+            ts_valid = torch.where(object_ts-frame_ts < 0, torch.ones([n_o,n_c]),torch.zeros([n_o,n_c]))
+        except:
+            ts_valid = torch.ones([n_o,n_c])
         # print("\nts_valid: {}\n".format(torch.mean(ts_valid)))
         #ts_valid = [(0 if item < 1 else 1) for item in ts]
         #ts_valid = torch.tensor(ts_valid).int().unsqueeze(0).expand(n_o,n_c)
@@ -307,7 +319,9 @@ class HeuristicDeviceMap(DeviceMap):
         
         keep = max_scores.nonzero().squeeze()
 
-        
+        # need to squash cam_map so that it is direction-agnostic for getting ts
+        cam_map = torch.tensor([self.cam_idxs[self.cam_names_extended[i].split("_")[0]] for i in cam_map])
+
         obj_times = [ts[idx] for idx in cam_map]
         
         
@@ -319,8 +333,18 @@ class HeuristicDeviceMap(DeviceMap):
         """
         returns a list of indices
         """
-        
-        detection_extents = [torch.tensor(self.cam_extents_dict[cam_name]) for cam_name in det_cams]
+        try:        
+            detection_extents = [torch.tensor(self.cam_extents_dict[cam_name]) for cam_name in det_cams]
+        except:
+            det_cams = [det_cams[i] + ("_eb" if detections[i,5] == 1 else "_wb") for i in range(len(det_cams))]
+            lis = []
+            for cam_name in det_cams:
+                try:
+                   lis.append(torch.tensor(self.cam_extents_dict[cam_name]))
+                except KeyError:
+                    lis.append(torch.tensor([0,0,0,0]))
+            detection_extents = lis
+
         detection_extents = torch.stack(detection_extents)
      
         keep = torch.where(detections[:,0] > detection_extents[:,0], 1,0) *    \

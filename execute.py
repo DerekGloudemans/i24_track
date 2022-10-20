@@ -224,8 +224,8 @@ def main(collection_overwrite = None):
     
     # initialize Homography object
     hg = HomographyWrapper(hg1 = params.eb_homography_file,hg2 = params.wb_homography_file)
-    hg = Curvilinear_Homography("./data/homography/new_hg_save.cpkl",downsample = 2) 
-    
+    hg = Curvilinear_Homography("./data/homography/new_hg_save.cpkl",downsample = 2, fill_gaps = True) 
+
     if params.track:
         # initialize pipelines
         pipelines = params.pipelines
@@ -365,7 +365,14 @@ def main(collection_overwrite = None):
                     detection_times = torch.tensor(
                         [ts_trunc[dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
                     
+                    # now that times are saved, we don't need device referencing any more
+                    # so we can append directions to cam_names
+                    #detection_cam_names = [detection_cam_names[i] + ("_eb" if detections[i,5] == 1 else "_wb") for i in range(len(detection_cam_names))]
+
+                    
                     if True and pipeline_idx == 0:
+                        
+                        
                         keep = dmap.filter_by_extents(detections,detection_cam_names)
                         detections = detections[keep,:]
                         confs = confs[keep]
@@ -543,14 +550,9 @@ if __name__ == "__main__":
                 if ret.status_code == 200:
                     print('Uploaded!')
                     
-                    
-        file = "/home/worklab/Data/cv/KITTI/data_tracking_image_2/training/image_02/0000"
-        file = "/home/worklab/Documents/derek/track_i24/output/temp_frames"
-        file = "/home/worklab/Documents/derek/LBT-count/vid"
-        file = "/home/worklab/Documents/derek/3D-playground/video/6"
         file = "/home/derek/Desktop/temp_frames"
 
 
             
         #file  = '/home/worklab/Desktop/temp'
-        im_to_vid(file,name = "latest_greatest",push_to_dashboard = True)
+        im_to_vid(file,name = "P08-P011",push_to_dashboard = True)

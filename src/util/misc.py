@@ -114,26 +114,60 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
         
         
         if extents is not None and len(boxes) > 0:
-            xmin, xmax, ymin,ymax = extents[cam_names[f_idx]]
-
-            # select objects that fall within that camera's space range (+ some tolerance)
-            # keep_obj = torch.mul(torch.where(boxes[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
-            #     boxes[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1) 
-            keep_obj = torch.mul(torch.where(boxes[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
-                boxes[:, 0] < xmax + PLOT_TOLERANCE, 1, 0))
-            keep_obj2 = torch.mul(torch.where(boxes[:, 1] > ymin, 1, 0), torch.where(
-                boxes[:, 1] < ymax, 1, 0))
-            
-            keep_obj = (keep_obj * keep_obj2).nonzero().squeeze(1)
-            
-            boxes = boxes[keep_obj,:]
-            ids = ids[keep_obj]
-            classes = classes[keep_obj]
             try:
-                classes = [hg.hg1.class_dict[cls.item()] for cls in classes]
-            except:   
-                classes = [hg.class_dict[cls.item()] for cls in classes]
-            
+                xmin, xmax, ymin,ymax = extents[cam_names[f_idx]]
+    
+                # select objects that fall within that camera's space range (+ some tolerance)
+                # keep_obj = torch.mul(torch.where(boxes[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
+                #     boxes[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1) 
+                keep_obj = torch.mul(torch.where(boxes[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
+                    boxes[:, 0] < xmax + PLOT_TOLERANCE, 1, 0))
+                keep_obj2 = torch.mul(torch.where(boxes[:, 1] > ymin, 1, 0), torch.where(
+                    boxes[:, 1] < ymax, 1, 0))
+                
+                keep_obj = (keep_obj * keep_obj2).nonzero().squeeze(1)
+                
+                boxes = boxes[keep_obj,:]
+                ids = ids[keep_obj]
+                classes = classes[keep_obj]
+                try:
+                    classes = [hg.hg1.class_dict[cls.item()] for cls in classes]
+                except:   
+                    classes = [hg.class_dict[cls.item()] for cls in classes]
+                    
+            except: # per direction camera extents
+                both_boxes = []
+                both_ids = []
+                both_classes = []
+                for direction in ["_eb", "_wb"]:
+                    try:
+                        xmin, xmax, ymin,ymax = extents[cam_names[f_idx]+ direction]
+                    except:
+                        continue
+        
+                    # select objects that fall within that camera's space range (+ some tolerance)
+                    # keep_obj = torch.mul(torch.where(boxes[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
+                    #     boxes[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1) 
+                    keep_obj = torch.mul(torch.where(boxes[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
+                        boxes[:, 0] < xmax + PLOT_TOLERANCE, 1, 0))
+                    keep_obj2 = torch.mul(torch.where(boxes[:, 1] > ymin, 1, 0), torch.where(
+                        boxes[:, 1] < ymax, 1, 0))
+                    
+                    keep_obj = (keep_obj * keep_obj2).nonzero().squeeze(1)
+                    
+                    sub_boxes = boxes[keep_obj,:]
+                    sub_ids = ids[keep_obj]
+                    sub_classes = classes[keep_obj]               
+                    sub_classes = [hg.class_dict[cls.item()] for cls in sub_classes]
+                    
+                    both_boxes.append(sub_boxes)
+                    both_ids.append(sub_ids)
+                    both_classes += sub_classes
+                
+                classes = both_classes
+                ids = torch.cat(both_ids,dim = 0)
+                boxes = torch.cat(both_boxes,dim = 0)
+                        
         # convert frame into cv2 image
         fr = (denorm(frames[f_idx]).numpy().transpose(1, 2, 0)*255)[:,:,::-1]
         #fr = frames[f_idx].numpy().transpose(1,2,0)
@@ -181,20 +215,39 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
                  color_slice = color_slice[np.newaxis,:]
             #color_slice = (0,255,0)
             
+            name = [cam_names[f_idx] for _ in boxes]
             fr = hg.plot_state_boxes(
-                fr.copy(), boxes, name=cam_names[f_idx], labels=None,thickness = 3, color = color_slice)
+                fr.copy(), boxes, name=name, labels=None,thickness = 3, color = color_slice)
 
         # plot original detections
         if detections is not None:
-            xmin, xmax, ymin,ymax = extents[cam_names[f_idx]]
-            keep_det= torch.mul(torch.where(detections[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
-                detections[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1)
-            detections_selected = detections[keep_det,:]
-            
-            fr = hg.plot_state_boxes(
-                fr.copy(), detections_selected, name=cam_names[f_idx], labels=None,thickness = 1, color = (255,0,0))
+            try:
+                xmin, xmax, ymin,ymax = extents[cam_names[f_idx]]
+                keep_det= torch.mul(torch.where(detections[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
+                    detections[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1)
+                detections_selected = detections[keep_det,:]
+                
+                fr = hg.plot_state_boxes(
+                    fr.copy(), detections_selected, name=cam_names[f_idx], labels=None,thickness = 1, color = (255,0,0))
+            except:
+                for direction in ["_eb", "_wb"]:
+                    try:
+                        xmin, xmax, ymin,ymax = extents[cam_names[f_idx]+ direction]
+                    except:
+                        continue
+                    keep_det= torch.mul(torch.where(detections[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
+                        detections[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1)
+                    detections_selected = detections[keep_det,:]
+                    # if cam_names[f_idx] == "p11c05":
+                    #     print("Here")
+                    
+                    name = [cam_names[f_idx]+direction for _ in detections_selected]
+                    fr = hg.plot_state_boxes(
+                        fr.copy(), detections_selected, name=name, labels=None,thickness = 1, color = (255,0,0))
+                    
 
         # plot priors
+        # TODO - fix for both direction plotting
         if  priors is not None and len(priors) > 0:
             keep_pr = torch.mul(torch.where(priors[:, 0] > xmin - PLOT_TOLERANCE, 1, 0), torch.where(
                 priors[:, 0] < xmax + PLOT_TOLERANCE, 1, 0)).nonzero().squeeze(1)
@@ -231,7 +284,7 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
 
     cv2.imwrite("/home/derek/Desktop/temp_frames/{}.png".format(str(fr_num).zfill(4)),cat_im*255)
     # plot
-    if True:
+    if False:
         cv2.imshow("frame", cat_im)
         # cv2.setWindowTitle("frame",str(self.frame_num))
         key = cv2.waitKey(1)

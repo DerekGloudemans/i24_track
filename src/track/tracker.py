@@ -435,7 +435,7 @@ class SmartTracker(BaseTracker):
                 # create direction tensor based on location
                 #directions = torch.where(new_detections[:,1] > 60, torch.zeros(new_confs.shape)-1,torch.ones(new_confs.shape))
                 directions = new_detections[:,5]
-                tstate.add(new_detections,directions,new_times,new_classes,new_confs,init_speed = True)
+                tstate.add(new_detections[:,:5],directions,new_times,new_classes,new_confs,init_speed = True)
                 
         # if no detections, increment fsld in all tracked objects
         else:
