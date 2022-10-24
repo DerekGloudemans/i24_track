@@ -7,7 +7,6 @@ Created on Mon Apr  6 10:49:38 2020
 
 import torch
 import numpy as np
-import matplotlib.pyplot as plt
 import time
 
 
@@ -564,21 +563,21 @@ if __name__ == "__main__":
                 filter.update(det_r,ids_r)
                 tracked_objects = filter.objs()
         
-                if False:
-                    # plot the points to visually confirm that it seems to be working 
-                    x_coords = []
-                    y_coords = []
-                    for key in tracked_objects:
-                        x_coords.append(tracked_objects[key][0])
-                        y_coords.append(tracked_objects[key][1])
-                    for i in range(len(x_coords)):
-                        if i < len(x_coords) -1:
-                            plt.scatter(det_r[i,0],det_r[i,1], color = colors2[i])
-                        plt.scatter(x_coords[i],y_coords[i],s = 300,color = colors[i])
-                        plt.annotate(i,(x_coords[i],y_coords[i]))
-                    plt.draw()
-                    plt.pause(0.0001)
-                    plt.clf()
+                # if False:
+                #     # plot the points to visually confirm that it seems to be working 
+                #     x_coords = []
+                #     y_coords = []
+                #     for key in tracked_objects:
+                #         x_coords.append(tracked_objects[key][0])
+                #         y_coords.append(tracked_objects[key][1])
+                #     for i in range(len(x_coords)):
+                #         if i < len(x_coords) -1:
+                #             plt.scatter(det_r[i,0],det_r[i,1], color = colors2[i])
+                #         plt.scatter(x_coords[i],y_coords[i],s = 300,color = colors[i])
+                #         plt.annotate(i,(x_coords[i],y_coords[i]))
+                #     plt.draw()
+                #     plt.pause(0.0001)
+                #     plt.clf()
                 
             total_time = time.time() - start_time
             frame_rate = n_frames/total_time
@@ -586,10 +585,10 @@ if __name__ == "__main__":
             print("Filtering {} objects for {} frames took {} sec. Average frame rate: {} on {}".format(n_objs,n_frames,total_time, n_frames/total_time,device))
             torch.cuda.empty_cache()
             
-    plt.figure()   
-    plt.plot(all_trials,all_results['cpu'])
-    plt.plot(all_trials,all_results['cuda:0'])
-    plt.xlabel("Number of filtered objects")
-    plt.ylabel("Frame Rate (Hz)")
-    plt.legend(["CPU","GPU"])
-    plt.title("Frame Rate versus number of objects")
+    # plt.figure()   
+    # plt.plot(all_trials,all_results['cpu'])
+    # plt.plot(all_trials,all_results['cuda:0'])
+    # plt.xlabel("Number of filtered objects")
+    # plt.ylabel("Frame Rate (Hz)")
+    # plt.legend(["CPU","GPU"])
+    # plt.title("Frame Rate versus number of objects")

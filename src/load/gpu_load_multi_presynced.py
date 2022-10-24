@@ -10,6 +10,7 @@ import os
 import numpy as np
 import time
 import re
+import glob 
 
 import cv2
 from PIL import Image
@@ -82,8 +83,8 @@ class MCLoader():
         
         if start_time is None:
             start_time = self.get_start_time(cam_names,cam_sequences)
-            self.start_time = start_time
-            print("Start time: {}".format(start_time))
+        self.start_time = start_time
+        print("Start time: {}".format(start_time))
         
         # device loader is a list of lists, with list i containing all loaders for device i (hopefully in order but not well enforced by dictionary so IDK)
         self.device_loaders = [[] for i in range(torch.cuda.device_count())]
@@ -98,6 +99,7 @@ class MCLoader():
             loader = GPUBackendFrameGetter(sequence,dev_id,ctx,resize = resize,start_time = start_time, Hz = Hz)
             
             self.device_loaders[dev_id].append(loader)
+            
      
     @catch_critical()                          
     def _parse_device_mapping(self,mapping_file):
@@ -158,31 +160,34 @@ class MCLoader():
             except:
                 directory = cam_sequences[key.upper().split("_")[0]]
                 
-            files = os.listdir(directory)
             
             # filter out non-video_files and sort video files
-            files = list(filter(  (lambda f: True if ".mkv" in f else False) ,   files))
+            #files = os.listdir(directory)
+            #files = list(filter(  (lambda f: True if ".mkv" in f else False) ,   files))
+            files = glob.glob(directory+"/*.mkv")
             files.sort()
-            sequence = os.path.join(directory, files[0])
+            sequence = files[0]
+            #sequence = os.path.join(directory, files[0])
             
+            ts  = float(sequence.split("/")[-1].split(".mkv")[0].split("_")[-1])
             
-            nvDec = nvc.PyNvDecoder(sequence,gpuID)
-            target_h, target_w = nvDec.Height(), nvDec.Width()
+            # nvDec = nvc.PyNvDecoder(sequence,gpuID)
+            # target_h, target_w = nvDec.Height(), nvDec.Width()
         
-            to_rgb = nvc.PySurfaceConverter(nvDec.Width(), nvDec.Height(), nvc.PixelFormat.NV12, nvc.PixelFormat.RGB, gpuID)
-            to_planar = nvc.PySurfaceConverter(nvDec.Width(), nvDec.Height(), nvc.PixelFormat.RGB, nvc.PixelFormat.RGB_PLANAR, gpuID)
+            # to_rgb = nvc.PySurfaceConverter(nvDec.Width(), nvDec.Height(), nvc.PixelFormat.NV12, nvc.PixelFormat.RGB, gpuID)
+            # to_planar = nvc.PySurfaceConverter(nvDec.Width(), nvDec.Height(), nvc.PixelFormat.RGB, nvc.PixelFormat.RGB_PLANAR, gpuID)
         
-            cspace, crange = nvDec.ColorSpace(), nvDec.ColorRange()
-            if nvc.ColorSpace.UNSPEC == cspace:
-                cspace = nvc.ColorSpace.BT_601
-            if nvc.ColorRange.UDEF == crange:
-                crange = nvc.ColorRange.MPEG
-            cc_ctx = nvc.ColorspaceConversionContext(cspace, crange)
+            # cspace, crange = nvDec.ColorSpace(), nvDec.ColorRange()
+            # if nvc.ColorSpace.UNSPEC == cspace:
+            #     cspace = nvc.ColorSpace.BT_601
+            # if nvc.ColorRange.UDEF == crange:
+            #     crange = nvc.ColorRange.MPEG
+            # cc_ctx = nvc.ColorspaceConversionContext(cspace, crange)
             
             
-            pkt = nvc.PacketData()
-            rawSurface = nvDec.DecodeSingleSurface(pkt)
-            ts = pkt.pts      / 10e8          
+            # pkt = nvc.PacketData()
+            # rawSurface = nvDec.DecodeSingleSurface(pkt)
+            # ts = pkt.pts      / 10e8          
             all_ts.append(ts)
             
         return max(all_ts)
@@ -253,10 +258,11 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
     
     # GET FIRST FILE
     # sort directory files (by timestamp)
-    files = os.listdir(directory)
+    #files = os.listdir(directory)
     
     # filter out non-video_files and sort video files
-    files = list(filter(  (lambda f: True if ".mkv" in f else False) ,   files))
+    #files = list(filter(  (lambda f: True if ".mkv" in f else False) ,   files))
+    files = glob.glob(directory+"/*.mkv")
     files.sort()
     
     # select next file that comes sequentially after last_file
@@ -277,7 +283,7 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
     returned_counter = 0
     while True:
         
-        file = os.path.join(directory,file)
+        #file = os.path.join(directory,file)
         
         # initialize Decoder object
         nvDec = nvc.PyNvDecoder(file, gpuID)
@@ -361,10 +367,12 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
             
         ### Get next file if there is one 
         # sort directory files (by timestamp)
-        files = os.listdir(directory)
+        # files = os.listdir(directory)
         
-        # filter out non-video_files and sort video files
-        files = list(filter(  (lambda f: True if ".mkv" in f else False) ,   files))
+        # # filter out non-video_files and sort video files
+        # files = list(filter(  (lambda f: True if ".mkv" in f else False) ,   files))
+        # files.sort()
+        files = glob.glob(directory+"/*.mkv")
         files.sort()
         
         logger.debug("Available files {}".format(files))

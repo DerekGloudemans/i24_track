@@ -7,15 +7,15 @@ import os
     
 
 
-def get_DeviceMap(name):
+def get_DeviceMap(name,camera_list = None):
     """
     getter function that takes a string (class name) input and returns an instance
     of the named class
     """
     if name == "DeviceMap":
-        dmap = DeviceMap()
+        dmap = DeviceMap(camera_list = camera_list)
     elif name == "HeuristicDeviceMap":
-        dmap = HeuristicDeviceMap()
+        dmap = HeuristicDeviceMap(camera_list = camera_list)
     else:
         raise NotImplementedError("No DeviceMap child class named {}".format(name))
     
@@ -39,13 +39,13 @@ class DeviceMap():
     """
     
     @catch_critical()
-    def __init__(self):
+    def __init__(self,camera_list = None):
         
         # load config
         self = parse_cfg("TRACK_CONFIG_SECTION",obj = self)
 
         # load self.cam_extents
-        self._parse_cameras(self.camera_extents_file)
+        self._parse_cameras(self.camera_extents_file, camera_list = camera_list)
         
         # convert camera extents to tensor
         cam_names = []
@@ -96,7 +96,7 @@ class DeviceMap():
                     
                 
     @catch_critical()
-    def _parse_cameras(self,extents_file):
+    def _parse_cameras(self,extents_file, camera_list = None):
         """
         This function is likely to change in future versions. For now, config file is expected to 
         express camera range as minx,miny,maxx,maxy e.g. p1c1=100,-10,400,120
@@ -116,7 +116,13 @@ class DeviceMap():
 
             except ValueError: # adding a $ to the end of each camera to be excluded will trigger this error and thus the camera will not be included
                 removals.append(key)
-                
+                continue
+            
+            if camera_list is not None:
+                base_key = key.split("_")[0]
+                if base_key.upper() not in camera_list:
+                    removals.append(key)
+            
         for rem in removals:
             extents.pop(rem)
     
@@ -190,9 +196,12 @@ class DeviceMap():
             cam_names - lost of camera names for each object in output obj_ids
         """
         
+        # Override
+        run_device_ids = None
+        
         # if no device ids are specified for this run, assume cuda device ids are contiguous
         if run_device_ids is None:
-            run_device_ids = [i for i in range(max(device_idxs))]
+            run_device_ids = [i for i in range(torch.cuda.device_count())]
             
         
         # no objects
@@ -219,8 +228,8 @@ class DeviceMap():
 class HeuristicDeviceMap(DeviceMap):
     
     @catch_critical()
-    def __init__(self):
-        super(HeuristicDeviceMap, self).__init__()
+    def __init__(self,camera_list = None):
+        super(HeuristicDeviceMap, self).__init__(camera_list = camera_list)
         
         # TODO move this to the config
         # add camera priority
@@ -344,7 +353,8 @@ class HeuristicDeviceMap(DeviceMap):
                 except KeyError:
                     lis.append(torch.tensor([0,0,0,0]))
             detection_extents = lis
-
+            if len(detection_extents) == 0:
+                return torch.empty([0])
         detection_extents = torch.stack(detection_extents)
      
         keep = torch.where(detections[:,0] > detection_extents[:,0], 1,0) *    \

@@ -282,7 +282,10 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
     new_size = (int(cat_im.shape[1]//trunc), int(cat_im.shape[0]//trunc))
     cat_im = cv2.resize(cat_im, new_size) / 255.0
 
-    cv2.imwrite("/home/derek/Desktop/temp_frames/{}.png".format(str(fr_num).zfill(4)),cat_im*255)
+    try:
+        cv2.imwrite("/home/derek/Desktop/temp_frames/{}.png".format(str(fr_num).zfill(4)),cat_im*255)
+    except:
+        cv2.imwrite("./temp_frames/{}.png".format(str(fr_num).zfill(4)),cat_im*255)
     # plot
     if False:
         cv2.imshow("frame", cat_im)

@@ -77,11 +77,13 @@ class DetectPipeline():
         
         # no frames assigned to this GPU
         if frames.shape[0] == 0:
+            logger.warning("No frames assigned to device: {}".format(self.device))
             del frames
             return torch.empty([0,6]) , torch.empty(0), torch.empty(0), [], []
         
         prepped_frames = self.prep_frames(frames,priors = priors)
         detection_result = self.detect(prepped_frames)
+        #print("Device {} detection result length: ".format(self.device),len(detection_result))
         detections,confs,classes,detection_cam_names  = self.post_detect(detection_result,priors = priors)
         
         # Associate
@@ -101,6 +103,7 @@ class DetectPipeline():
         
         self.detector = self.detector.to(self.device)
         self.detector.eval()
+        self.detector.training = False
         
         if device_id != -1:
             torch.cuda.set_device(device_id)
@@ -215,6 +218,9 @@ class RetinanetFullFramePipelineMulti(DetectPipeline):
         
         # load detector weights
         self.detector.load_state_dict(torch.load(self.weights_file))
+        
+        self.detector.training = False
+        self.detector.eval()
     
         # quantize model         
         if self.quantize:
@@ -232,7 +238,9 @@ class RetinanetFullFramePipelineMulti(DetectPipeline):
     def detect(self,frames):
         
         #logger.debug("Log message test from pipeline: {}".format(self.device))
-        
+        self.detector.training = False
+        self.detector.eval()
+
         if self.prev_frame is None:
             self.prev_frame = frames.clone()            
         
@@ -252,6 +260,7 @@ class RetinanetFullFramePipelineMulti(DetectPipeline):
         #confs,classes = torch.max(classes, dim = 2) 
         detection_cam_names = [] # dummy value in case no objects returned
         
+        #print("In detector length: {}".format(len(detections)))
         
         # reshape detections to form [d,8,2] 
         detections = detections.reshape(-1,10,2)
@@ -399,6 +408,9 @@ class RetinanetCropFramePipeline(DetectPipeline):
         # initialize detector
         self.detector = Retinanet3D(self.n_classes)
     
+        self.detector.eval()
+        self.detector.training = False
+        
         # quantize model         
         if self.quantize:
             self.detector = self.detector.half()

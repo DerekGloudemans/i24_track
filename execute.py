@@ -1,13 +1,14 @@
 import torch.multiprocessing as mp
+import torch
+
 import socket
 import _pickle as pickle
 import numpy as np
-import torch
 import os,shutil
 import time
 
 #os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
-os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_batch_6"
+#os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_batch_6"
 
 from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
@@ -96,9 +97,10 @@ def soft_shutdown(target_time,tstate,collection_overwrite,cleanup = []):
         del cleanup[i]
     
     logger.debug("Soft Shutdown complete. All processes should be terminated")
-    raise KeyboardInterrupt()
+    time.sleep(10)
+    raise KeyboardInterrupt("Re-raising error after soft shutdown.")
 
-def main(collection_overwrite = None):  
+def main(collection_overwrite = None, include_camera_list = None):  
     
     
         
@@ -190,14 +192,18 @@ def main(collection_overwrite = None):
     # verify config notion of GPUs matches torch.cuda notion of available devices
     # get available devices
     
-    
+    #torch.cuda.set_device(1)
+
     
     # TODO fix this once you redo configparse
-    params.cuda_devices = [int(i) for i in range(int(params.cuda_devices))]
-    assert max(params.cuda_devices) < torch.cuda.device_count()
+    #params.cuda_devices = [int(i+1) for i in range(int(params.cuda_devices))]
+    #assert max(params.cuda_devices) < torch.cuda.device_count()
     
     # intialize DeviceMap
-    dmap = get_DeviceMap(params.device_map)
+    dmap = get_DeviceMap(params.device_map, camera_list = include_camera_list)#camera_list = ["P08C01","P08C02","P09C01","P09C02","P10C01","P10C02","P11C01","P11C02"])
+    dmap_devices = list(set(dmap.cam_devices))
+    dmap_devices.sort()
+    params.cuda_devices = dmap_devices
     
     # intialize empty TrackState Object
     tstate = TrackState()
@@ -224,13 +230,13 @@ def main(collection_overwrite = None):
     
     # initialize Homography object
     hg = HomographyWrapper(hg1 = params.eb_homography_file,hg2 = params.wb_homography_file)
-    hg = Curvilinear_Homography("./data/homography/new_hg_save.cpkl",downsample = 2, fill_gaps = True) 
+    hg = Curvilinear_Homography(params.homography_file,downsample = 2, fill_gaps = True) 
 
     if params.track:
         # initialize pipelines
         pipelines = params.pipelines
-        pipelines = [get_Pipeline(item, hg) for item in pipelines]
-        
+        pipelines = [[get_Pipeline(item, hg) for item in pipelines] for _ in params.cuda_devices]
+        #pipelines = [pipelines[i].to(torch.device("cuda:{}".format(params.cuda_devices[i]))) for i in range(len(pipelines))]
         associators = params.associators
         associators = [get_Associator(item) for item in associators]
         
@@ -311,6 +317,9 @@ def main(collection_overwrite = None):
                     # get next frames and timestamps
                     tm.split("Get Frames")
                     frames, timestamps = loader.get_frames()
+                    #print([len(f) for f in frames])
+                    #[print(f.shape,f.device,"||") for f in frames]
+
                     #print(frames_processed,timestamps[0],target_time) # now we expect almost an exactly 30 fps framerate and exactly 30 fps target framerate
                     
                     if frames is None:
@@ -344,12 +353,14 @@ def main(collection_overwrite = None):
                     cam_idx_names = None  # map idxs to names here
                     prior_stack = dmap.route_objects(
                         obj_ids, priors, device_idxs, camera_idxs, run_device_ids=params.cuda_devices)
-            
+                    
+                    #print("Prior Stack Length: {}".format(len(prior_stack)))
                     if False:#  and frames_processed == 173:
                         # test on a single on-process pipeline
                         pipelines[pipeline_idx].set_device(1)
                         pipelines[pipeline_idx].set_cam_names(dmap.gpu_cam_names[1])
                         test = pipelines[pipeline_idx](frames[1],prior_stack[1])
+                        print(len(test[0]))
             
             
                     # TODO - full frame detections should probably get full set of objects?
@@ -457,6 +468,7 @@ def main(collection_overwrite = None):
                 logger.info("Time Utilization: {}".format(tm),extra = tm.bins())
                 
             if params.checkpoint and frames_processed % 500 == 0:
+                target_time = max(timestamps)
                 checkpoint(target_time,tstate,collection_overwrite)
        
         

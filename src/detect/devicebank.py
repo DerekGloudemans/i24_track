@@ -1,5 +1,6 @@
 import torch.multiprocessing as mp
 import torch
+import copy 
 
 #from ..log_init import logger
 from i24_logger.log_writer import logger,catch_critical
@@ -15,14 +16,13 @@ class DeviceBank():
     """
     
     
-    def __init__(self,device_ids,pipelines,device_cam_names,ctx):
+    def __init__(self,device_ids,lpipelines,device_cam_names,ctx):
         """
         gpu_cam_names = list of lists, with one list per gpu, and camera names assigned to that gpu in the list
         """
-        
         self.device_ids = device_ids
         
-        self.send_queues = []
+        self.send_queues = {}
         self.receive_queues = []
         self.handlers = []
         
@@ -31,20 +31,27 @@ class DeviceBank():
         #ctx = mp.get_context('spawn')
         
         # create handler objects
-        for dev_idx in range(len(device_ids)):
+        idx = 0
+        for dev_id in device_ids:
             
+            print("Device {} is processing cameras {}".format(dev_id,device_cam_names[dev_id]))
             # store which cameras the pipeline will be processing
+            #pipelines = copy.deepcopy(pipelines)
+            pipelines = lpipelines[idx]
+            idx += 1
             for p in pipelines:
-                p.set_cam_names(device_cam_names[dev_idx])
-                p.set_device(device_ids[dev_idx])
+                p.set_cam_names(device_cam_names[dev_id])
+                p.set_device(dev_id)
             in_queue = ctx.Queue()
             out_queue = ctx.Manager().Queue() # for some reason this is much faster queue but can't send CUDA tensors recieved from other processes
-            handler = ctx.Process(target=handle_device, args=(in_queue,out_queue,pipelines,dev_idx,device_cam_names[dev_idx]))
+            handler = ctx.Process(target=handle_device, args=(in_queue,out_queue,pipelines,dev_id,device_cam_names[dev_id]))
             handler.start()
             
             self.handlers.append(handler)
-            self.send_queues.append(in_queue)
+            self.send_queues[dev_id] = in_queue
             self.receive_queues.append(out_queue)
+        
+        del lpipelines
         
         logger.debug("Main started {} pipeline handler processes".format(len(self.device_ids)))
         self.device_cam_names = device_cam_names
@@ -75,16 +82,20 @@ class DeviceBank():
         # send tasks
         self.tm.split("Send",SYNC = True)
         for i in range(len(prior_stack)):
-            self.send_queues[i].put((prior_stack[i],frames[i],pipeline_idx))
-        
+            if i in self.send_queues.keys():
+                # prior stack i will always correspond to device 0
+                self.send_queues[i].put((prior_stack[i],frames[i],pipeline_idx))
+                #print("Sent {} frames to device {}".format(frames[i].shape[0],i))
         # get results
         result = []
-        for i in range(len(prior_stack)):
+        for i in range(len(self.receive_queues)):
             self.tm.split("Recieve {}".format(i),SYNC = True)
             result.append(self.receive(i))
         
         # concat and return results
         self.tm.split("Concat",SYNC = True)
+        lens = [len(item[0]) for item in result]
+        #print(lens)
         result = self.concat_stack(result)    
         
         self.tm.split("Waiting")
@@ -149,10 +160,11 @@ def handle_device(in_queue,out_queue,pipelines,device_id,this_dev_cam_names):
     # intialize
     #device = torch.cuda.device("cuda:{}".format(device_id) if device_id != -1 else "cpu")
     torch.cuda.set_device(device_id)
+    [pipelines[i].set_device(device_id) for i in range(len(pipelines))]
     
     #from i24_logger.log_writer import logger
     logger.set_name("Tracking Device Handler {}".format(device_id))
-    logger.debug("Device handler {} initialized".format(device_id))
+    logger.debug("Device handler {} initialized to process {}".format(device_id,this_dev_cam_names))
     
     while True:
         
