@@ -7,15 +7,15 @@ import os
     
 
 
-def get_DeviceMap(name,camera_list = None):
+def get_DeviceMap(name,camera_list = None, camera_priorities = []):
     """
     getter function that takes a string (class name) input and returns an instance
     of the named class
     """
     if name == "DeviceMap":
-        dmap = DeviceMap(camera_list = camera_list)
+        dmap = DeviceMap(camera_list = camera_list,camera_priorities=camera_priorities)
     elif name == "HeuristicDeviceMap":
-        dmap = HeuristicDeviceMap(camera_list = camera_list)
+        dmap = HeuristicDeviceMap(camera_list = camera_list, camera_priorities = camera_priorities)
     else:
         raise NotImplementedError("No DeviceMap child class named {}".format(name))
     
@@ -39,7 +39,7 @@ class DeviceMap():
     """
     
     @catch_critical()
-    def __init__(self,camera_list = None):
+    def __init__(self,camera_list = None, camera_priorities = []):
         
         # load config
         self = parse_cfg("TRACK_CONFIG_SECTION",obj = self)
@@ -70,9 +70,12 @@ class DeviceMap():
         self.cam_idxs = {}
         for i in range(len(self.cam_names)):
             self.cam_idxs[self.cam_names[i]] = i
-        
         # load self.cam_devices
-        self._parse_device_mapping(self.camera_mapping_file)
+        if len(camera_priorities) == len(camera_list):
+            self._priority_assign_devices(camera_list,camera_priorities)
+            self.cam_devices_dict = self.cam_devices
+        else:
+            self._parse_device_mapping(self.camera_mapping_file)
         self.cam_devices = [self.cam_devices[cam_name.split("_")[0]] for cam_name in self.cam_names]
         
         
@@ -127,7 +130,27 @@ class DeviceMap():
             extents.pop(rem)
     
         self.cam_extents = extents
-      
+     
+    @catch_critical()
+    def _priority_assign_devices(self,camera_list,priorities):
+        n_devices = torch.cuda.device_count()
+        
+        devices = [[] for _ in range(n_devices)]
+        d_idx = 0
+        for pri in [1,2,3]:
+            for c_idx,cam in enumerate(camera_list):
+                if priorities[c_idx] == pri:
+                    devices[d_idx].append(cam.lower())
+                    d_idx  = (d_idx+1)%n_devices
+        
+        # ravel lists into a single dict
+        ravel = {}
+        for d_idx in range(len(devices)):
+            for cam in devices[d_idx]:
+                ravel[cam] = d_idx
+        self.cam_devices = ravel
+        
+        
     @catch_critical()                          
     def _parse_device_mapping(self,mapping_file):
         """
@@ -228,8 +251,8 @@ class DeviceMap():
 class HeuristicDeviceMap(DeviceMap):
     
     @catch_critical()
-    def __init__(self,camera_list = None):
-        super(HeuristicDeviceMap, self).__init__(camera_list = camera_list)
+    def __init__(self,camera_list = None,camera_priorities = []):
+        super(HeuristicDeviceMap, self).__init__(camera_list = camera_list,camera_priorities=camera_priorities)
         
         # TODO move this to the config
         # add camera priority

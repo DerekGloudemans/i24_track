@@ -61,6 +61,15 @@ class DeviceBank():
         self.tm = Timer()
         self.batches_processed = 0
       
+    def __del__(self):
+        for h in self.handlers:
+            h.terminate()
+        for sq in self.send_queues:
+            del sq
+        for rq in self.recieve_queues:
+            del rq
+            
+        
     @catch_critical()
     def __call__(self,prior_stack,frames,pipeline_idx=0):
         """
@@ -180,6 +189,7 @@ def handle_device(in_queue,out_queue,pipelines,device_id,this_dev_cam_names):
             #TODO log device handler shutdown
         
         (prior_data,frames,pipeline_idx) = inputs
+        torch.cuda.empty_cache()
         result = pipelines[pipeline_idx](frames,priors = prior_data)
         out_queue.put(result)
         

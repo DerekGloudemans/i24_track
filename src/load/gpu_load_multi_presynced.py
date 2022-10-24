@@ -66,11 +66,11 @@ class MCLoader():
     """
     
     @catch_critical()        
-    def __init__(self,directory,mapping_file,cam_names,ctx,resize = (1920,1080), start_time = None, Hz = 29.9):
+    def __init__(self,directory,mapping,cam_names,ctx,resize = (1920,1080), start_time = None, Hz = 29.9):
         
         
     
-        self._parse_device_mapping(mapping_file)
+        self.cam_devices = mapping
 
 
         # instead of getting individual files, sequence is a directorie (1 per camera)
@@ -81,9 +81,13 @@ class MCLoader():
                 cam_name = re.search("P\d\dC\d\d",sequence).group(0)
                 cam_sequences[cam_name] = sequence
         
+        self.true_start_time = self.get_start_time(cam_names,cam_sequences)
+
         if start_time is None:
-            start_time = self.get_start_time(cam_names,cam_sequences)
-        self.start_time = start_time
+            self.start_time = self.true_start_time
+        else:
+            self.start_time = start_time
+            
         print("Start time: {}".format(start_time))
         
         # device loader is a list of lists, with list i containing all loaders for device i (hopefully in order but not well enforced by dictionary so IDK)
@@ -96,7 +100,7 @@ class MCLoader():
             except:
                 sequence = cam_sequences[key.upper().split("_")[0]]
             
-            loader = GPUBackendFrameGetter(sequence,dev_id,ctx,resize = resize,start_time = start_time, Hz = Hz)
+            loader = GPUBackendFrameGetter(sequence,dev_id,ctx,resize = resize,start_time = self.start_time, Hz = Hz)
             
             self.device_loaders[dev_id].append(loader)
             
@@ -192,7 +196,12 @@ class MCLoader():
             
         return max(all_ts)
 
+    def __del__(self):
+        for idx in range(len(self.device_loaders)):
+            for loader in self.device_loaders[idx]:
+                loader.worker.kill()
         
+            
     
 class GPUBackendFrameGetter:
     def __init__(self,directory,device,ctx,buffer_size = 5,resize = (1920,1080),start_time = None, Hz = 29.9):

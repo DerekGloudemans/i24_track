@@ -7,9 +7,10 @@ import numpy as np
 import os,shutil
 import time
 import signal 
+import warnings
 
 #os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
-#os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_batch_6"
+os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_batch_6"
 
 from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
@@ -74,7 +75,7 @@ class TrackingProcess:
         
         # default hostname
         hostname = socket.gethostname()
-        #hostname = "videonode1"
+        hostname = "videonode2"
         
         # default camera list
         cam_assignment =  params.cam_assignment
@@ -88,11 +89,13 @@ class TrackingProcess:
         # default collection name
         self.collection_overwrite = "garbage_dump"
         
-        # overwrite with stuff kwargs
+        ##### overwrite with stuff kwargs
         
         # if camera list isn't specified as an argument, get it from params
         if len(cams) > 0:
             include_camera_list = cams
+        
+        priorities = [ret[key].priority for key in include_camera_list]
         
         # get input video directory. If  not specified in arg1, get it from execute.config
         if len(vidPath) > 0:
@@ -105,7 +108,7 @@ class TrackingProcess:
         
         
         # intialize DeviceMap
-        self.dmap = get_DeviceMap(params.device_map, camera_list = include_camera_list)
+        self.dmap = get_DeviceMap(params.device_map, camera_list = include_camera_list, camera_priorities = priorities)
         dmap_devices = list(set(self.dmap.cam_devices))
         dmap_devices.sort()
         params.cuda_devices = dmap_devices
@@ -120,9 +123,9 @@ class TrackingProcess:
         
         # get frame handlers
         from src.load.gpu_load_multi_presynced       import MCLoader
-        self.loader = MCLoader(in_dir,self.dmap.camera_mapping_file,self.dmap.cam_names, ctx,start_time = target_time,Hz = params.nominal_framerate)
+        self.loader = MCLoader(in_dir,self.dmap.cam_devices_dict,self.dmap.cam_names, ctx,start_time = target_time,Hz = params.nominal_framerate)
         self.max_ts = self.loader.start_time
-        self.start_ts = self.loader.start_time
+        self.start_ts = self.loader.true_start_time
         self.logger.debug("Initialized {} loader processes.".format(len(self.loader.device_loaders)))
 
         
@@ -210,14 +213,13 @@ class TrackingProcess:
             
         return target_time,tstate,collection_overwrite
             
-    @catch_critical()
-    def sigint_handler(self):
+    def sigint_handler(self,sig,frame):
         
         self.logger.warning("Either SIGINT or KeyboardInterrupt recieved. Initiating soft shutdown")
 
         
-        target_time = max(self.timestamps)
-        self.checkpoint(self.tstate,target_time,self.collection_overwrite,save_file = "working_checkpoint.cpkl")
+        target_time = self.max_ts
+        self.checkpoint(self.tstate,target_time,self.collection_overwrite)
         
         # clean up subprocesses
         del self.dbank, self.dmap, self.loader, self.dbw
@@ -228,7 +230,7 @@ class TrackingProcess:
         
         raise KeyboardInterrupt("Re-raising error after soft shutdown.")
     
-    def sigusr_handler(self):
+    def sigusr_handler(self,sig,frame):
         self.logger.warning("SIGUSR recieved. Flushing active objects then raising SIGINT")
         
         logger.debug("Keyboard Interrupt recieved. Initializing soft shutdown")
@@ -462,7 +464,7 @@ class TrackingProcess:
 if __name__ == "__main__":
     
     
-    __process_entry__(cams=["P11C06","P08C06","P09C06","P10C06","P13C06","P12C06"])
+    __process_entry__()#cams=["P11C06","P08C06","P09C06","P10C06","P13C06","P12C06","P11C03","P08C04","P09C03","P10C03","P13C03","P12C03"])
     
     # if True:
     #     import cv2
