@@ -44,7 +44,7 @@ class DeviceBank():
                 p.set_device(dev_id)
             in_queue = ctx.Queue()
             out_queue = ctx.Manager().Queue() # for some reason this is much faster queue but can't send CUDA tensors recieved from other processes
-            handler = ctx.Process(target=handle_device, args=(in_queue,out_queue,pipelines,dev_id,device_cam_names[dev_id]))
+            handler = ctx.Process(target=handle_device, args=(in_queue,out_queue,pipelines,dev_id,device_cam_names[dev_id]),daemon = True)
             handler.start()
             
             self.handlers.append(handler)
@@ -64,6 +64,7 @@ class DeviceBank():
     def __del__(self):
         for h in self.handlers:
             h.terminate()
+            h.join()
         for sq in self.send_queues:
             del sq
         for rq in self.recieve_queues:

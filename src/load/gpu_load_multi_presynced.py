@@ -82,13 +82,15 @@ class MCLoader():
                 cam_sequences[cam_name] = sequence
         
         self.true_start_time = self.get_start_time(cam_names,cam_sequences)
+        self.true_start_time += 1
 
+        print("True Start Time: {}   Start Time: {}".format(self.true_start_time,start_time))        
         if start_time is None:
             self.start_time = self.true_start_time
         else:
             self.start_time = start_time
             
-        print("Start time: {}".format(start_time))
+        print("Start time: {}".format(self.start_time))
         
         # device loader is a list of lists, with list i containing all loaders for device i (hopefully in order but not well enforced by dictionary so IDK)
         self.device_loaders = [[] for i in range(torch.cuda.device_count())]
@@ -197,10 +199,12 @@ class MCLoader():
         return max(all_ts)
 
     def __del__(self):
-        for idx in range(len(self.device_loaders)):
-            for loader in self.device_loaders[idx]:
-                loader.worker.kill()
-        
+        try:
+            for idx in range(len(self.device_loaders)):
+                for loader in self.device_loaders[idx]:
+                    loader.worker.kill()
+        except:
+            pass
             
     
 class GPUBackendFrameGetter:
@@ -213,7 +217,7 @@ class GPUBackendFrameGetter:
         
         self.directory = directory
         # instead of a single file, pass a directory, and a start time
-        self.worker = ctx.Process(target=load_queue_continuous_vpf, args=(self.queue,directory,device,buffer_size,resize,start_time,Hz))
+        self.worker = ctx.Process(target=load_queue_continuous_vpf, args=(self.queue,directory,device,buffer_size,resize,start_time,Hz),daemon = True)
         self.worker.start()   
             
 

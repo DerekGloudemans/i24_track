@@ -5,16 +5,17 @@ import socket
 import _pickle as pickle
 import numpy as np
 import os,shutil
+from sys import exit
 import time
 import signal 
 import warnings
 
 #os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
-os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_batch_6"
+#os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_batch_6"
 
 from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
-#mp.set_sharing_strategy('file_system')
+mp.set_sharing_strategy('file_system')
 
 
 
@@ -45,6 +46,11 @@ def __process_entry__(cams=[], vidPath='', ingID='', trackID=''):
     signal.signal(signal.SIGINT, p.sigint_handler)
     signal.signal(signal.SIGUSR1, p.sigusr_handler)
     p.main()
+    
+def force_cudnn_initialization():
+    s = 32
+    dev = torch.device('cuda:0')
+    torch.nn.functional.conv2d(torch.zeros(s, s, s, s, device=dev), torch.zeros(s, s, s, s, device=dev))
 
 class TrackingProcess:
     
@@ -52,12 +58,21 @@ class TrackingProcess:
         """
         Set up persistent process variables here
         """
-        
+        mp.set_sharing_strategy('file_system')
+        force_cudnn_initialization()
+
+        self.run = True
         ctx = mp.get_context('spawn')
+        
+        import gc
+        torch.cuda.empty_cache()
+        gc.collect()
+
         
         from i24_logger.log_writer         import logger,catch_critical,log_warnings
         self.logger = logger
         self.logger.set_name("Tracking Main")
+        logger.info("Main process PID: {}".format(os.getpid()))
         
         #%% run settings    
         self.tm = Timer()
@@ -71,11 +86,14 @@ class TrackingProcess:
         params = self.parse_cfg_wrapper(run_config)
         
         # default input directory
-        in_dir = params.input_directory
+        in_dir = params.input_directory #os.path.join(params.input_directory,trackID)
+        self.checkpoint_dir = in_dir
+        
+        
         
         # default hostname
         hostname = socket.gethostname()
-        hostname = "videonode2"
+        #hostname = "videonode2"
         
         # default camera list
         cam_assignment =  params.cam_assignment
@@ -95,11 +113,17 @@ class TrackingProcess:
         if len(cams) > 0:
             include_camera_list = cams
         
+        if include_camera_list is None:
+            self.run = False
+            return 
+        
         priorities = [ret[key].priority for key in include_camera_list]
         
         # get input video directory. If  not specified in arg1, get it from execute.config
         if len(vidPath) > 0:
-            in_dir = vidPath
+            in_dir = vidPath# os.path.join(vidPath,trackID)
+        self.checkpoint_dir = in_dir
+
         
         if len(trackID) > 0:
             self.collection_overwrite = trackID
@@ -121,13 +145,17 @@ class TrackingProcess:
         target_time,self.tstate,self.collection_overwrite = self.load_checkpoint(target_time,self.tstate,self.collection_overwrite)
         
         
+        print("Collection Name: {}    Track ID:  {}   Video Path: {}   Checkpoint Path: {}".format(self.collection_overwrite,trackID,in_dir, self.checkpoint_dir))
+        
         # get frame handlers
         from src.load.gpu_load_multi_presynced       import MCLoader
         self.loader = MCLoader(in_dir,self.dmap.cam_devices_dict,self.dmap.cam_names, ctx,start_time = target_time,Hz = params.nominal_framerate)
         self.max_ts = self.loader.start_time
         self.start_ts = self.loader.true_start_time
+        
         self.logger.debug("Initialized {} loader processes.".format(len(self.loader.device_loaders)))
-
+        print("In main loop, max_ts = {} and start_ts = {}".format(self.max_ts,self.start_ts))
+        
         
         # initialize Homography object
         self.hg = Curvilinear_Homography(params.homography_file,downsample = 2, fill_gaps = True) 
@@ -171,7 +199,7 @@ class TrackingProcess:
     
     
     @catch_critical()
-    def checkpoint(self,tstate,next_target_time,collection_overwrite,save_file = None):
+    def checkpoint(self):
         """
         Saves the trackstate and next target_time as a pickled object such that the 
         state of tracker can be reloaded for no loss in tracking progress
@@ -180,15 +208,15 @@ class TrackingProcess:
         :param   next_target_time - float
         :return  None
         """
-        if save_file is None:
-           save_file = "{}.cpkl".format(collection_overwrite)
+
+        save_file = os.path.join(self.checkpoint_dir,"tracking_checkpoint.cpkl")
         with open(save_file,"wb") as f:
-            pickle.dump([next_target_time,tstate,collection_overwrite],f)
-        logger.debug("Checkpointed TrackState object, time:{}s".format(next_target_time))
+            pickle.dump([self.max_ts,self.tstate,self.collection_overwrite],f)
+        logger.debug("Checkpointed TrackState object, time:{}s".format(self.max_ts))
     
             
     @catch_critical()
-    def load_checkpoint(self,target_time,tstate,collection_overwrite,save_file = None):
+    def load_checkpoint(self,target_time,tstate,collection_overwrite):
         """
         Loads the trackstate and next target_time from pickled object such that the 
         state of tracker can be reloaded for no loss in tracking progress. Requires 
@@ -199,14 +227,13 @@ class TrackingProcess:
         :param   next_target_time - float
         :return  None
         """  
-        if save_file is None:
-           save_file = "{}.cpkl".format(collection_overwrite)
+        save_file = os.path.join(self.checkpoint_dir,"tracking_checkpoint.cpkl")
         
         if os.path.exists(save_file):
             with open(save_file,"rb") as f:
                 target_time,tstate,collection_overwrite = pickle.load(f)
             
-            logger.debug("Loaded checkpointed TrackState object, time:{}s".format(target_time))
+            logger.debug("Loaded checkpointed TrackState with {} objects, time:{}s".format(len(tstate),target_time))
             
         else:
             logger.debug("No checkpoint file exists, starting tracking from max min video timestamp")
@@ -214,19 +241,29 @@ class TrackingProcess:
         return target_time,tstate,collection_overwrite
             
     def sigint_handler(self,sig,frame):
-        
+        self.run = False
         self.logger.warning("Either SIGINT or KeyboardInterrupt recieved. Initiating soft shutdown")
 
-        
-        target_time = self.max_ts
-        self.checkpoint(self.tstate,target_time,self.collection_overwrite)
+        self.checkpoint()
         
         # clean up subprocesses
-        del self.dbank, self.dmap, self.loader, self.dbw
+        del self.dbank,
+        torch.cuda.empty_cache()
+        print("Deleted device handlers")
+        time.sleep(5)
         
+
+        del self.loader
+        torch.cuda.empty_cache()
+        print("Deleted frame loaders")
+
+        del self.dbw
+
         
         self.logger.debug("Soft Shutdown complete. All processes should be terminated")
-        time.sleep(10)
+        self.logger.debug("Exiting in 3 seconds")
+        time.sleep(3)
+        exit()
         
         raise KeyboardInterrupt("Re-raising error after soft shutdown.")
     
@@ -242,223 +279,232 @@ class TrackingProcess:
         except:
             logger.warning("Failed to flush active objects at end of tracking. Is write_db = False?")
         
-        self.sigint_handler()
+        self.sigint_handler(sig,frame)
     
     
     def main(self):  
           
-        # initialize processing sync clock
-        fps = 0
-        start_ts = self.loader.start_time
-        nom_framerate = self.params.nominal_framerate 
-        frames_processed = 0
-        term_objects = 0
         
-        
-        ts_offsets_all = []
         
         #%% Main Processing Loop
-        start_time = time.time()
+        if self.run:
+            
+            # initialize processing sync clock
+            fps = 0
+            frames_processed = 0
+            term_objects = 0
+            
+                        
+            start_time = time.time()
+            
+            self.logger.debug("Initialization Complete. Starting tracking at {}s".format(start_time))
         
-        self.logger.debug("Initialization Complete. Starting tracking at {}s".format(start_time))
-    
-        end_time = np.inf
-        if self.params.end_time != -1:
-            end_time = self.params.end_time
-            
-        # readout headers
-        try:
-            while self.max_ts < end_time:
+            end_time = np.inf
+            if self.params.end_time != -1:
+                end_time = self.params.end_time
+                
+            # readout headers
+            try:
+                while self.max_ts < end_time:
+                        
+        
                     
-    
-                
-                if self.params.track: # shortout actual processing
-                
-                   
-                
-                    # select pipeline for this frame
-                    pidx = frames_processed % len(self.params.pipeline_pattern)
-                    pipeline_idx = self.params.pipeline_pattern[pidx]
-            
-                    if pipeline_idx != -1: # -1 means skip frame
-                        
-                        # get next frames and timestamps
-                        self.tm.split("Get Frames")
-                        try:
-                            frames, timestamps = self.loader.get_frames()
-                            self.max_ts = max(timestamps)
-                        except:
-                            break # out of input
-                        #print([len(f) for f in frames])
-                        #[print(f.shape,f.device,"||") for f in frames]
-    
-                        #print(frames_processed,timestamps[0],target_time) # now we expect almost an exactly 30 fps framerate and exactly 30 fps target framerate
-                        
-                        if frames is None:
-                            logger.warning("Ran out of input. Tracker is shutting down")
-                            break #out of input
-                        ts_trunc = [item - self.start_ts for item in timestamps]
-                        
-                        # for obj in initializations:
-                        #     obj["timestamp"] -= start_ts
-                        initializations = None
-                            
-                        ### WARNING! TIME ERROR INJECTION
-                        # ts_trunc[3] += 0.05
-                        # ts_trunc[10] += .1
-                        
-                        self.tm.split("Predict")
-                        camera_idxs, device_idxs, obj_times, selected_obj_idxs = self.dmap(self.tstate, ts_trunc)
-                        obj_ids, priors, _ = self.tracker.preprocess(
-                            self.tstate, obj_times)
-                        
-                        # slice only objects we care to pass to DeviceBank on this set of frames
-                        # DEREK NOTE may run into trouble here since dmap and preprocess implicitly relies on the list ordering of tstate
-                        if len(obj_ids) > 0:
-                            obj_ids     =     obj_ids[selected_obj_idxs]
-                            priors      =      priors[selected_obj_idxs,:]
-                            device_idxs = device_idxs[selected_obj_idxs]
-                            camera_idxs = camera_idxs[selected_obj_idxs]
-                        
-                        # prep input stack by grouping priors by gpu
-                        self.tm.split("Map")
-                        cam_idx_names = None  # map idxs to names here
-                        prior_stack = self.dmap.route_objects(
-                            obj_ids, priors, device_idxs, camera_idxs, run_device_ids=self.params.cuda_devices)
+                    if self.params.track: # shortout actual processing
                     
-                        # get detections
-                        self.tm.split("Detect {}".format(pipeline_idx),SYNC = True)
-                        detections, confs, classes, detection_cam_names, associations = self.dbank(
-                            prior_stack, frames, pipeline_idx=pipeline_idx)
-                        
-                        detections = detections.float()
-                        confs = confs.float()
-                        
-                        # THIS MAY BE SLOW SINCE ITS DOUBLE INDEXING
-                        detection_times = torch.tensor(
-                            [ts_trunc[self.dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
-                        
-                        # now that times are saved, we don't need device referencing any more
-                        # so we can append directions to cam_names
-                        #detection_cam_names = [detection_cam_names[i] + ("_eb" if detections[i,5] == 1 else "_wb") for i in range(len(detection_cam_names))]
-    
-                        
-                        if True and pipeline_idx == 0:
+                       
+                    
+                        # select pipeline for this frame
+                        pidx = frames_processed % len(self.params.pipeline_pattern)
+                        pipeline_idx = self.params.pipeline_pattern[pidx]
+                
+                        if pipeline_idx != -1: # -1 means skip frame
                             
+                            # get next frames and timestamps
+                            self.tm.split("Get Frames")
+                            try:
+                                frames, timestamps = self.loader.get_frames()
+                                self.max_ts = max(timestamps)
+                            except:
+                                break # out of input
+                            #print([len(f) for f in frames])
+                            #[print(f.shape,f.device,"||") for f in frames]
+        
+                            #print(frames_processed,timestamps[0],target_time) # now we expect almost an exactly 30 fps framerate and exactly 30 fps target framerate
                             
-                            keep = self.dmap.filter_by_extents(detections,detection_cam_names)
-                            detections = detections[keep,:]
-                            confs = confs[keep]
-                            classes = classes[keep]
-                            detection_times = detection_times[keep]
-                            detection_cam_names = [detection_cam_names[_] for _ in keep]
-                        
-                        
+                            if frames is None:
+                                logger.warning("Ran out of input. Tracker is shutting down")
+                                break #out of input
+                            ts_trunc = [item - self.start_ts for item in timestamps]
                             
-                        self.tm.split("Associate",SYNC = True)
-                        if pipeline_idx == 0:
-                            detections_orig = detections.clone()
-                            if True and len(detections) > 0:
-                                # do nms across all device batches to remove dups
-                                #space_new = hg.state_to_space(detections)
-                                keep = state_nms(detections,confs)
+                            # for obj in initializations:
+                            #     obj["timestamp"] -= start_ts
+                            initializations = None
+                                
+                            ### WARNING! TIME ERROR INJECTION
+                            # ts_trunc[3] += 0.05
+                            # ts_trunc[10] += .1
+                            
+                            self.tm.split("Predict")
+                            camera_idxs, device_idxs, obj_times, selected_obj_idxs = self.dmap(self.tstate, ts_trunc)
+                            obj_ids, priors, _ = self.tracker.preprocess(
+                                self.tstate, obj_times)
+                            
+                            # slice only objects we care to pass to DeviceBank on this set of frames
+                            # DEREK NOTE may run into trouble here since dmap and preprocess implicitly relies on the list ordering of tstate
+                            if len(obj_ids) > 0:
+                                obj_ids     =     obj_ids[selected_obj_idxs]
+                                priors      =      priors[selected_obj_idxs,:]
+                                device_idxs = device_idxs[selected_obj_idxs]
+                                camera_idxs = camera_idxs[selected_obj_idxs]
+                            
+                            # prep input stack by grouping priors by gpu
+                            self.tm.split("Map")
+                            cam_idx_names = None  # map idxs to names here
+                            prior_stack = self.dmap.route_objects(
+                                obj_ids, priors, device_idxs, camera_idxs, run_device_ids=self.params.cuda_devices)
+                        
+                            # get detections
+                            self.tm.split("Detect {}".format(pipeline_idx),SYNC = True)
+                            detections, confs, classes, detection_cam_names, associations = self.dbank(
+                                prior_stack, frames, pipeline_idx=pipeline_idx)
+                            
+                            detections = detections.float()
+                            confs = confs.float()
+                            
+                            # THIS MAY BE SLOW SINCE ITS DOUBLE INDEXING
+                            detection_times = torch.tensor(
+                                [ts_trunc[self.dmap.cam_idxs[cam_name]] for cam_name in detection_cam_names])
+                            
+                            # now that times are saved, we don't need device referencing any more
+                            # so we can append directions to cam_names
+                            #detection_cam_names = [detection_cam_names[i] + ("_eb" if detections[i,5] == 1 else "_wb") for i in range(len(detection_cam_names))]
+        
+                            
+                            if True and pipeline_idx == 0:
+                                
+                                
+                                keep = self.dmap.filter_by_extents(detections,detection_cam_names)
                                 detections = detections[keep,:]
-                                classes = classes[keep]
                                 confs = confs[keep]
+                                classes = classes[keep]
                                 detection_times = detection_times[keep]
+                                detection_cam_names = [detection_cam_names[_] for _ in keep]
                             
-                            # overwrite associations here
-                            associations = self.associators[0](obj_ids,priors,detections,self.hg)
-                
-                        self.tm.split("Postprocess")
-                        terminated_objects,cause_of_death = self.tracker.postprocess(
-                            detections, detection_times, classes, confs, associations, self.tstate, hg = self.hg,measurement_idx =0)
-                        term_objects += len(terminated_objects)
-            
-                        self.tm.split("Write DB")
-                        if self.params.write_db:
-                            self.dbw.insert(terminated_objects,cause_of_death = cause_of_death,time_offset = start_ts)
-                        #print("Active Trajectories: {}  Terminated Trajectories: {}   Documents in database: {}".format(len(tstate),len(terminated_objects),len(dbw)))
-            
-        
-                # optionally, plot outputs
-                if self.params.plot:
-                    self.tm.split("Plot")
-                    #detections = None
-                    priors = None
-                    plot_scene(self.tstate, 
-                               frames, 
-                               ts_trunc, 
-                               self.dmap.gpu_cam_names,
-                               self.hg, 
-                               colors,
-                               extents=self.dmap.cam_extents_dict, 
-                               mask=self.mask,
-                               fr_num = frames_processed,
-                               detections = detections,
-                               priors = priors,
-                               save_crops_dir=None)
-        
-                
-                # text readout update
-                self.tm.split("Bookkeeping")
-                fps = (max(timestamps) - start_ts)/(time.time() - start_time) * 30
-                max_dev = max(timestamps) - min(timestamps)
-                if frames_processed % 50 == 0:
-                    print("\n\nFrame:    Since Start:  Frame BPS:    Sync Timestamp:     Max ts Deviation:     Active Objects:    Written Objects:")
-                print("\r{}        {:.3f}s       {:.2f}        {:.3f}              {:.3f}                {}               {}".format(frames_processed, time.time() - start_time,fps,max(timestamps), max_dev, len(self.tstate), len(self.dbw)), end='\r', flush=True)
-            
-                # get next target time
-                #target_time = clock.tick()
-                frames_processed += 1
-                
-        
-                if (frames_processed+1) % 50 == 0:
-                    metrics = {
-                        "frame bps": fps,
-                        "frame batches processed":frames_processed,
-                        "run time":time.time() - start_time,
-                        "scene time processed":max(timestamps) - start_ts,
-                        "active objects":len(self.tstate),
-                        "total terminated objects":term_objects
-                        }
-                    self.logger.info("Tracking Status Log",extra = metrics)
-                    self.logger.info("Time Utilization: {}".format(self.tm),extra = self.tm.bins())
+                            
+                                
+                            self.tm.split("Associate",SYNC = True)
+                            if pipeline_idx == 0:
+                                detections_orig = detections.clone()
+                                if True and len(detections) > 0:
+                                    # do nms across all device batches to remove dups
+                                    #space_new = hg.state_to_space(detections)
+                                    keep = state_nms(detections,confs)
+                                    detections = detections[keep,:]
+                                    classes = classes[keep]
+                                    confs = confs[keep]
+                                    detection_times = detection_times[keep]
+                                
+                                # overwrite associations here
+                                associations = self.associators[0](obj_ids,priors,detections,self.hg)
                     
-                if self.params.checkpoint and frames_processed % 500 == 0:
-                    self.checkpoint(self.tstate,self.max_ts,self.collection_overwrite)
-           
+                            self.tm.split("Postprocess")
+                            terminated_objects,cause_of_death = self.tracker.postprocess(
+                                detections, detection_times, classes, confs, associations, self.tstate, hg = self.hg,measurement_idx =0)
+                            term_objects += len(terminated_objects)
+                
+                            self.tm.split("Write DB")
+                            if self.params.write_db:
+                                self.dbw.insert(terminated_objects,cause_of_death = cause_of_death,time_offset = self.start_ts)
+                            #print("Active Trajectories: {}  Terminated Trajectories: {}   Documents in database: {}".format(len(tstate),len(terminated_objects),len(dbw)))
+                
             
+                    # optionally, plot outputs
+                    if self.params.plot:
+                        self.tm.split("Plot")
+                        #detections = None
+                        priors = None
+                        plot_scene(self.tstate, 
+                                   frames, 
+                                   ts_trunc, 
+                                   self.dmap.gpu_cam_names,
+                                   self.hg, 
+                                   colors,
+                                   extents=self.dmap.cam_extents_dict, 
+                                   mask=self.mask,
+                                   fr_num = frames_processed,
+                                   detections = detections,
+                                   priors = priors,
+                                   save_crops_dir=None)
             
+                    
+                    # text readout update
+                    self.tm.split("Bookkeeping")
+                    fps = (max(timestamps) - self.start_ts)/(time.time() - start_time) * 30
+                    max_dev = max(timestamps) - min(timestamps)
+                    if frames_processed % 50 == 0:
+                        print("\n\nFrame:    Since Start:  Frame BPS:    Sync Timestamp:     Max ts Deviation:     Active Objects:    Written Objects:")
+                    print("\r{}        {:.3f}s       {:.2f}        {:.3f}              {:.3f}                {}               {}".format(frames_processed, time.time() - start_time,fps,max(timestamps), max_dev, len(self.tstate), len(self.dbw)), end='\r', flush=True)
+                
+                    # get next target time
+                    #target_time = clock.tick()
+                    frames_processed += 1
+                    
             
-        except Exception as e:
+                    if (frames_processed+1) % 50 == 0:
+                        metrics = {
+                            "frame bps": fps,
+                            "frame batches processed":frames_processed,
+                            "run time":time.time() - start_time,
+                            "scene time processed":max(timestamps) - self.start_ts,
+                            "active objects":len(self.tstate),
+                            "total terminated objects":term_objects
+                            }
+                        self.logger.info("Tracking Status Log",extra = metrics)
+                        self.logger.info("Time Utilization: {}".format(self.tm),extra = self.tm.bins())
+                        
+                    if self.params.checkpoint and frames_processed % 500 == 0:
+                        self.checkpoint()
+               
+                
+            # except KeyboardInterrupt:
+                
+            #     if self.run:
+            #         print("caught keyboard interrupt and sending to main process")                
+            #         os.kill(os.getpid(), signal.SIGUSR1)
+            #     else:
+            #         raise KeyboardInterrupt()
+                
+                
+            except Exception as e:
+                
+                logger.warning("{} thrown. Checkpointing..".format(e))
+                
+                self.checkpoint()
+                raise e
+                
+                
+             
+                
+            # If we get here, code has finished over available time range without exception
+            # So we should checkpoint the active objects and shut down without flushing objects
+            #checkpoint(target_time,tstate,collection_overwrite)
+            self.logger.info("Finished tracking over input time range. Shutting down.")
             
-            logger.warning("{} thrown. Checkpointing..".format(e))
+            if False: # Flush tracker objects
+                residual_objects,COD = self.tracker.flush(self.tstate)
+                self.dbw.insert(residual_objects,cause_of_death = COD,time_offset = self.start_ts)
+                self.logger.info("Flushed all active objects to database",extra = metrics)
+    
+            # if collection_overwrite is not None:
+            #     # cache settings in new folder
+            #     cache_dir = "./data/config_cache/{}".format(collection_overwrite)
+            #     #os.mkdir(cache_dir)
+            #     shutil.copytree(os.environ["USER_CONFIG_DIRECTORY"],cache_dir)    
+            #     logger.debug("Cached run settings in {}".format(cache_dir))
             
-            self.checkpoint(self.tstate, self.max_ts, self.collection_overwrite)
-            raise e
-            
-            
-         
-            
-        # If we get here, code has finished over available time range without exception
-        # So we should checkpoint the active objects and shut down without flushing objects
-        #checkpoint(target_time,tstate,collection_overwrite)
-        self.logger.info("Finished tracking over input time range. Shutting down.")
-        
-        if False: # Flush tracker objects
-            residual_objects,COD = self.tracker.flush(self.tstate)
-            self.dbw.insert(residual_objects,cause_of_death = COD,time_offset = start_ts)
-            self.logger.info("Flushed all active objects to database",extra = metrics)
-
-        # if collection_overwrite is not None:
-        #     # cache settings in new folder
-        #     cache_dir = "./data/config_cache/{}".format(collection_overwrite)
-        #     #os.mkdir(cache_dir)
-        #     shutil.copytree(os.environ["USER_CONFIG_DIRECTORY"],cache_dir)    
-        #     logger.debug("Cached run settings in {}".format(cache_dir))
-        
-        return fps
+            return fps
+        else:
+            self.logger.debug("No cameras assigned, shutting down.")
             
      
 if __name__ == "__main__":

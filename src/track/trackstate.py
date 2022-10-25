@@ -105,8 +105,8 @@ class TrackState():
                 
             kf_params["Q"] = torch.stack(Q)
     
-        with open("./data/kf_params/kf_params_save4.cpkl","wb") as f:
-            pickle.dump(kf_params,f)
+        #with open("./data/kf_params/kf_params_save4.cpkl","wb") as f:
+        #    pickle.dump(kf_params,f)
         
         
         # initialize Kalman filter
