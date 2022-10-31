@@ -212,7 +212,7 @@ class WriteWrapperConf():
             cls_data = trajectory[1]
             conf_data = trajectory[2]
             
-            direction = - 1 if history[0][1][1].item() > 60 else 1
+            direction = - 1 if history[0][1][1].item() > 0  else 1
             
             cls = int(np.argmax(cls_data))
             timestamps = [item[0] + time_offset + ts_bias for item in history]
@@ -227,6 +227,9 @@ class WriteWrapperConf():
             prior_covariance = (np.stack([item[4].data.numpy() for item in history])[:,:6]).tolist()
             prior = (np.stack([item[5].data.numpy() for item in history])[:,:6]).tolist()
             confs = [conf.item() for conf in conf_data]
+            
+            # new, more failsafe definition for direction
+            direction = 1 if (x[-1] - x[0]) > 0 else -1
             
             # convert to document form
             doc = {}

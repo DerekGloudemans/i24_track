@@ -104,7 +104,7 @@ class Curvilinear_Homography():
         self.downsample = downsample 
         
         self.correspondence = {}
-        if save_file is not None:
+        if save_file is not None and os.path.exists(save_file):
             with open(save_file,"rb") as f:
                 # everything in correspondence is pickleable without object definitions to allow compatibility after class definitions change
                 self.correspondence,self.median_tck,self.median_u,self.guess_tck = pickle.load(f)
@@ -118,14 +118,15 @@ class Curvilinear_Homography():
         
         else:
             self.generate(space_dir,im_dir)
-            
+            self.median_tck = None
+            self.median_u = None
+            self.guess_tck = None
+            self.save(save_file)
             #  fit the axis spline once and collect extents
             self._fit_spline(space_dir)
-            #self._get_extents()    
             
-        self.save("new_hg_save.cpkl")
+            self.save(save_file)
         
-        #self._cache_spline_points()
 
 
         # object class info doesn't really belong in homography but it's unclear
@@ -201,7 +202,7 @@ class Curvilinear_Homography():
         for direction in ["EB","WB"]:
             ### State space, do once
             
-
+    
             
             for file in os.listdir(space_dir):
                 if direction.lower() not in file:
@@ -351,9 +352,15 @@ class Curvilinear_Homography():
         cam_data_paths = glob.glob(os.path.join(im_dir,"*.cpkl"))
         
         for cam_data_path in cam_data_paths:
+            
+            
             # specify path to camera imagery file
             cam_im_path   = cam_data_path.split(".cpkl")[0] + ".png"
             camera = cam_data_path.split(".cpkl")[0].split("/")[-1]
+            
+            # if "46" in camera or "47" in camera or "48" in camera:
+            #     print("excluded validation system pole")
+            #     continue
             
             # load all points
             with open(cam_data_path, "rb") as f:
@@ -574,7 +581,7 @@ class Curvilinear_Homography():
                 t_points = torch.stack([ torch.tensor([vpl[0] for vpl in vp_lines]), 
                                           torch.tensor([vpl[1] for vpl in vp_lines]) ]).transpose(1,0)
                 heights =  torch.tensor([vpl[4] for vpl in vp_lines]).unsqueeze(1)
-
+    
                 
                 # project to space
                 
@@ -600,15 +607,15 @@ class Curvilinear_Homography():
                 # add third column for height
                 new_pts_shifted  = torch.cat((new_pts,heights.double()),1)
                 
-
+    
                 # add fourth column for scale factor
                 new_pts_shifted  = torch.cat((new_pts_shifted,torch.ones(heights.shape)),1)
                 new_pts_shifted = torch.transpose(new_pts_shifted,0,1).double()
-
+    
                 # project to image
                 P = torch.from_numpy(P).double().to(points.device)
                 
-
+    
                 new_pts = torch.matmul(P,new_pts_shifted).transpose(0,1)
                 
                 # divide each point 0th and 1st column by the 2nd column
@@ -637,7 +644,7 @@ class Curvilinear_Homography():
             upper_bound = best_C + 2*step_size
             C_grid = np.linspace(lower_bound,upper_bound,num = 100,dtype = np.float64)
             step_size = C_grid[1] - C_grid[0]
-
+    
             #print("New C_grid: {}".format(C_grid.round(4)))
             iteration += 1
         
@@ -688,6 +695,9 @@ class Curvilinear_Homography():
                     if direction.lower() not in file:
                         continue
                     
+                    # if "P40C02" in file or "P31C02" in file or "P25C02" in file:
+                    #     continue
+                    
                     # load all points
                     dataframe = pd.read_csv(os.path.join(space_dir,file))
                     try:
@@ -717,7 +727,6 @@ class Curvilinear_Homography():
                         ae_id += st_id
                 
                 
-                # Find a-d end point of all d2 lane markers
                 ae_spl_x = []
                 ae_spl_y = []
                 ae_spl_u = []  # u parameterizes distance along spline 
@@ -728,7 +737,7 @@ class Curvilinear_Homography():
                     if "yel{}".format(line_side) in ae_id[i]:
                         ae_spl_x.append(ae_x[i])
                         ae_spl_y.append(ae_y[i])
-
+    
                 # 2. Fit a spline to each of EB, WB inside and outside
                  
                 # compute the yellow line spline in state plane coordinates (sort points by y value since road is mostly north-south)
@@ -741,7 +750,7 @@ class Curvilinear_Homography():
                 span_dist = np.sqrt((ae_spl_x[0] - ae_spl_x[-1])**2 + (ae_spl_y[0] - ae_spl_y[-1])**2)
                 ae_x_prime, ae_y_prime = interpolate.splev(np.linspace(0, 1, int(span_dist*samples_per_foot)), ae_tck)
             
-
+    
                 # 4. Use finite difference method to determine the distance along the spline for each fit point
                 fd_dist = np.concatenate(  (np.array([0]),  ((ae_x_prime[1:] - ae_x_prime[:-1])**2 + (ae_y_prime[1:] - ae_y_prime[:-1])**2)**0.5),axis = 0) # by convention fd_dist[0] will be 0, so fd_dist[i] = sum(int_dist[0:i])
                 integral_dist = np.cumsum(fd_dist)
@@ -758,17 +767,25 @@ class Curvilinear_Homography():
                 # 5. Refit the splines, this time parameterizing the spline by these distances (u parameter in scipy.splprep)
                 #ae_spl_u.reverse()
                 
+                # sort by increasing u
+                ae_spl_u = np.array(ae_spl_u)
+                sorted_idxs = np.argsort(ae_spl_u)
+                ae_spl_u = ae_spl_u[sorted_idxs]
+                ae_data  = ae_data[:,sorted_idxs]
+                
                 tck, u = interpolate.splprep(ae_data.astype(float), s=0, u = ae_spl_u)
                 splines["{}_{}".format(direction,line_side)] = [tck,u]
                 
-                
+            
+        # to prevent any bleedover
+        del dist, min_dist, min_idx, ae_spl_y,ae_spl_x, ae_spl_u, ae_data
            
-        # 6. Sample each spline at fine intervals
+        # 6. Sample each of the 4 splines at fine intervals (every 2 feet)
         for key in splines:
             tck,u = splines[key]
-
+    
             span_dist = np.abs(u[0] - u[-1])
-            x_prime, y_prime = interpolate.splev(np.linspace(u[0], u[-1], int(3*span_dist)), tck)
+            x_prime, y_prime = interpolate.splev(np.linspace(u[0], u[-1], int(span_dist/2)), tck)
             splines[key].append(x_prime)
             splines[key].append(y_prime)
             
@@ -778,16 +795,15 @@ class Curvilinear_Homography():
         
         # 7. Move along one spline and at each point, find the closest point on each other spline
         # by default, we'll use EB_o as the base spline
-        main_key = "EB_o"
+        main_key = "WB_i"
         main_spl = splines[main_key]
         main_x = main_spl[2]
         main_y = main_spl[3]
         
+        
         for p_idx in range(len(main_x)):
-            
-            points_to_average = [np.array([px,py])]
-            
             px,py = main_x[p_idx],main_y[p_idx]
+            points_to_average = [np.array([px,py])]
             
             for key in splines:
                 if key != main_key:
@@ -796,22 +812,49 @@ class Curvilinear_Homography():
                     dist = np.sqrt((arr_x - px)**2 + (arr_y - py)**2)
                     min_dist,min_idx= np.min(dist),np.argmin(dist)
                     
-                    points_to_average.append( np.array([arr_x[p_idx],arr_y[p_idx]]))
+                    points_to_average.append( np.array([arr_x[min_idx],arr_y[min_idx]]))
             
+            if len(points_to_average) != 4:
+                print("Outlier removed")
+                continue
             
             med_point = sum(points_to_average)/len(points_to_average)
+            
+            
             
             # 8. Define a point on the median/ midpoint axis as the average on these 4 splines
             med_spl_x.append(med_point[0])
             med_spl_y.append(med_point[1])
         
-
+    
         
         # 9. Use the set of median points to define a new spline
+        # sort by increasing x
         med_data = np.stack([np.array(med_spl_x),np.array(med_spl_y)])
-        med_tck,med_u = interpolate.splprep(med_data, s=0, per=False)
+        med_data = med_data[:,np.argsort(med_data[0])]
+        
+        # remove weirdness (i.e. outlying points) s.t. both x and y are monotonic and strictly increasing
+        keep = (med_data[1,1:] <  med_data[1,:-1]).astype(int).tolist()
+        keep = [1] + keep
+        keep = np.array(keep)
+        med_data = med_data[:,keep.nonzero()[0]]
+        
+        keep = (med_data[0,1:] >  med_data[0,:-1]).astype(int).tolist()
+        keep = [1] + keep
+        keep = np.array(keep)
+        med_data = med_data[:,keep.nonzero()[0]]
+        #med_data = np.ascontiguousarray(med_data)
+        
+        s = 10
+        n_knots = len(med_data[0])
+        while n_knots > 600:
+            med_tck,med_u = interpolate.splprep(med_data, s=s, per=False)
+            n_knots = len(med_tck[0])
+            s = s**1.2
         
         # 10. Use the finite difference method to reparameterize this spline according to distance along it
+        med_spl_x = med_data[0]
+        med_spl_y = med_data[1]
         span_dist = np.sqrt((med_spl_x[0] - med_spl_x[-1])**2 + (med_spl_y[0] - med_spl_y[-1])**2)
         med_x_prime, med_y_prime = interpolate.splev(np.linspace(0, 1, int(span_dist*samples_per_foot)), med_tck)
         
@@ -821,48 +864,84 @@ class Curvilinear_Homography():
         
         # for each fit point, find closest point on spline, and assign it the corresponding integral distance
         med_spl_u = []
-        for p_idx in range(len(med_spl_x)):
-            px = med_spl_x[p_idx]
-            py = med_spl_y[p_idx]
+        for p_idx in range(len(med_data[0])):
+            px,py = med_data[0,p_idx], med_data[1,p_idx]
             
             dist = ((med_x_prime - px)**2 + (med_y_prime - py)**2)**0.5
             min_dist,min_idx= np.min(dist),np.argmin(dist)
             med_spl_u.append(med_integral_dist[min_idx])
         
+        # sort by increasing u I guess
+        med_spl_u = np.array(med_spl_u)
+        sorted_idxs = np.argsort(med_spl_u)
+        med_spl_u = med_spl_u[sorted_idxs]
+        med_data  = med_data[:,sorted_idxs]
         
-        final_tck, final_u = interpolate.splprep(ae_data.astype(float), s=0, u = ae_spl_u)
+        # sort by strictly increasing u
+        keep = (med_spl_u[1:] >  med_spl_u[:-1]).astype(int).tolist()
+        keep = [1] + keep
+        keep = np.array(keep)
+        med_data = med_data[:,keep.nonzero()[0]]
+        med_spl_u = med_spl_u[keep.nonzero()[0]]
+        
+        import matplotlib.pyplot as plt
+        plt.figure(figsize = (20,20))
+        plt.plot(med_data[0],med_data[1])
+        plt.figure()
+        plt.plot(med_spl_u)
+        plt.plot(np.array(med_spl_u)[np.argsort(med_spl_u)])
+        
+        
+        s = 10.0
+        min_dist = 0
+        while min_dist < 100:
+            final_tck,final_u = interpolate.splprep(med_data.astype(float), s=s, u=med_spl_u)
+            knots = final_tck[0]
+            min_dist = np.min(np.abs(knots[4:] - knots[:-4]))
+            s = s**1.1
+        
+        #final_tck, final_u = interpolate.splprep(med_data, u = med_spl_u)
         self.median_tck = final_tck
         self.median_u = final_u
-        
-        # get the inverse spline g(x) = u for guessing initial spline point
-        ae_spl_u = np.array(ae_spl_u)
-        print(ae_data.shape,ae_spl_u.shape)
-
-        self.guess_tck = interpolate.splrep(ae_data[0],ae_spl_u)
         
         if use_MM_offset:
             # 11. Optionally, compute a median spline distance offset from mile markers
             self.MM_offset = self._fit_MM_offset()
         
             # 12. Optionally, recompute the same spline, this time accounting for the MM offset
-            ae_spl_u += self.MM_offset
-            final_tck, final_u = interpolate.splprep(ae_data.astype(float), s=0, u = ae_spl_u)
+            med_spl_u += self.MM_offset
+            final_tck, final_u = interpolate.splprep(med_data.astype(float), s=s, u = med_spl_u)
             self.median_tck = final_tck
             self.median_u = final_u
-    
-    # def _cache_spline_points(self,granularity = 0.1):
-    #     """
-    #     Caches u,x, and y for a grid with specified granularity
-    #     granularity - float
-    #     RETURN: None, but sets self.spline_cache as [n,3] tensor of u,x,y
-    #     """
-    #     umin = min(self.median_u)
-    #     umax = max(self.median_u)
-    #     count = int((umax-umin)*1/granularity)
-    #     u_prime = np.linspace(umin,umax,count)
-    #     med_x_prime, med_y_prime = interpolate.splev(u_prime, self.median_tck)
         
-    #     self.spline_cache = torch.stack([torch.from_numpy(arr) for arr in [u_prime,med_x_prime,med_y_prime]])
+        
+        # Finally, resample the spline at 100 foot intervals, and use this to fit a final spline
+        ulist = []
+        xlist = []
+        ylist = []
+        for u in range(int(min(final_u)),int(max(final_u)), 100):
+            ulist.append(u)
+            x,y = interpolate.splev(u,final_tck)
+            xlist.append(x)
+            ylist.append(y)
+            
+        data = np.array([xlist,ylist])
+        smooth_tck,smooth_u = interpolate.splprep(data,u= ulist)
+        
+        self.median_tck = smooth_tck
+        self.median_u = smooth_u
+        
+        # get the inverse spline g(x) = u for guessing initial spline point
+        med_spl_u = np.array(med_spl_u)
+        print(med_data.shape,med_spl_u.shape)
+    
+    
+        # sort by strictly increasing x
+        sorted_idxs = np.argsort(med_data[0])
+        med_data = med_data[:,sorted_idxs]
+        med_spl_u = med_spl_u[sorted_idxs]
+    
+        self.guess_tck = interpolate.splrep(med_data[0].astype(float),med_spl_u.astype(float))
     
     def closest_spline_point(self,points, epsilon = 0.01, max_iterations = 100):
         """
@@ -1488,7 +1567,7 @@ class Curvilinear_Homography():
     
     #%% Plotting Functions
     
-    def plot_boxes(self,im,boxes,color = (255,255,255),labels = None,thickness = 1):
+    def plot_boxes(self,im,boxes,color = (255,255,255),labels = None,thickness = 1, ORIGIN = True):
         """
         As one might expect, plots 3D boxes on input image
         
@@ -1497,19 +1576,19 @@ class Curvilinear_Homography():
         color - 3-tuple specifying box color to plot
         """
                 
-        DRAW = [[0,1,1,0,1,0,0,0], #bfl
-                [0,0,0,1,0,1,0,0], #bfr
-                [0,0,0,1,0,0,1,1], #bbl
-                [0,0,0,0,0,0,1,1], #bbr
-                [0,0,0,0,0,1,1,0], #tfl
-                [0,0,0,0,0,0,0,1], #tfr
-                [0,0,0,0,0,0,0,1], #tbl
-                [0,0,0,0,0,0,0,0]] #tbr
+        DRAW = [[0,1,2,0,1,0,0,0], #bfr
+                [0,0,0,1,0,1,0,0], #bfl
+                [0,0,0,3,0,0,4,1], #bbr
+                [0,0,0,0,0,0,1,1], #bbl
+                [0,0,0,0,0,1,1,0], #tfr
+                [0,0,0,0,0,0,0,1], #tfl
+                [0,0,0,0,0,0,0,1], #tbr
+                [0,0,0,0,0,0,0,0]] #tbl
         
-        DRAW_BASE = [[0,1,1,1], #bfl
-                     [0,0,1,1], #bfr
-                     [0,0,0,1], #bbl
-                     [0,0,0,0]] #bbr
+        DRAW_BASE = [[0,1,1,1], #bfr
+                     [0,0,1,1], #bfl
+                     [0,0,0,1], #bbr
+                     [0,0,0,0]] #bbl
         
         for idx, bbox_3d in enumerate(boxes):
             
@@ -1529,10 +1608,13 @@ class Curvilinear_Homography():
                 for b in range(a,len(bbox_3d)):
                     bb = bbox_3d[b]
                     if DRAW[a][b] == 1:
-                        #try:
                             im = cv2.line(im,(int(ab[0]),int(ab[1])),(int(bb[0]),int(bb[1])),c,thickness)
-                        #except:
-                            pass
+                    elif DRAW[a][b] == 2:
+                            im = cv2.line(im,(int(ab[0]),int(ab[1])),(int(bb[0]),int(bb[1])),(0,255,0),thickness)
+                    elif DRAW[a][b] == 3:
+                            im = cv2.line(im,(int(ab[0]),int(ab[1])),(int(bb[0]),int(bb[1])),(255,0,0),thickness)
+                    elif DRAW[a][b] == 4:
+                            im = cv2.line(im,(int(ab[0]),int(ab[1])),(int(bb[0]),int(bb[1])),(0,0,255),thickness)
         
             if labels is not None:
                 label = labels[idx]
@@ -1540,6 +1622,12 @@ class Curvilinear_Homography():
                 top   = bbox_3d[0,1]
                 im    = cv2.putText(im,"{}".format(label),(int(left),int(top - 10)),cv2.FONT_HERSHEY_PLAIN,2,(0,0,0),3)
                 im    = cv2.putText(im,"{}".format(label),(int(left),int(top - 10)),cv2.FONT_HERSHEY_PLAIN,2,(255,255,255),1)
+            
+            # draw origin
+            if ORIGIN:
+                bbl = bbox_3d[2,:]
+                bbl = int(bbl[0]),int(bbl[1])
+                im = cv2.circle(im,bbl,2,(255,255,255),-1)
             
         return im
         
@@ -1616,7 +1704,7 @@ class Curvilinear_Homography():
         
         
         ### Project each aerial imagery point into pixel space and get pixel error
-        if True:
+        if False:
             print("Test 1: Pixel Reprojection Error")
             start = time.time()
             running_error = []
@@ -1632,11 +1720,10 @@ class Curvilinear_Homography():
                 
                 proj_space_pts = self.space_to_im(space_pts,name = namel).squeeze(1)
                 error = torch.sqrt(((proj_space_pts - im_pts)**2).sum(dim = 1)).mean()
-                #print("Mean error for {}: {}px".format(name,error))
+                print("Mean error for {}: {}px".format(name,error))
                 running_error.append(error)   
             end = time.time() - start
             print("Average Pixel Reprojection Error across all homographies: {}px in {} sec\n".format(sum(running_error)/len(running_error),end))
-            
             
         
         ### Project each camera point into state plane coordinates and get ft error
@@ -1663,9 +1750,11 @@ class Curvilinear_Homography():
                 proj_im_pts = self.im_to_space(im_pts,name = namel, heights = 0, refine_heights = False).squeeze(1)
                 
                 error = torch.sqrt(((proj_im_pts - space_pts)**2).sum(dim = 1)).mean()
-                #print("Mean error for {}: {}ft".format(name,error))
+                print("Mean error for {}: {}ft".format(name,error))
                 running_error.append(error)
             print("Average Space Reprojection Error across all homographies: {}ft\n".format(sum(running_error)/len(running_error)))
+            
+
         
         if True:
             ### Create a random set of boxes
@@ -1695,10 +1784,14 @@ class Curvilinear_Homography():
             boxes = torch.rand(state_pts.shape[0],6) 
             boxes[:,:2] = state_pts[:,:2]
             #boxes[:,1] = boxes[:,1] * 240 - 120
-            boxes[:,2] *= 60
-            boxes[:,3] *= 10
-            boxes[:,4] *= 10
+            boxes[:,2] = 10
+            boxes[:,3] = .10
+            boxes[:,4] = .10
             boxes[:,5] = torch.sign(boxes[:,1])
+            
+            boxes[:,1] = 0.01
+            # boxes[:,2] = 30
+            # boxes[:,3:5] = .01
             
             # get appropriate camera for each object
             
@@ -1724,28 +1817,50 @@ class Curvilinear_Homography():
             print("Average Im-State-Im Reprojection Error: {} px\n".format(error))
         
         if True: 
-            # plot some boxes
-            plot_cam = "P09C05"
-            im_path = os.path.join(im_dir,plot_cam) + ".png"
-            im = cv2.imread(im_path)
-            plot_boxes = []
-            for i in range(len(all_cam_names)):
-                if all_cam_names[i] == plot_cam:
-                    plot_boxes.append(im_boxes[i])
-                    
-            plot_boxes = torch.stack(plot_boxes)
-            im = self.plot_boxes(im, plot_boxes)
-            cv2.imshow("Frame", im)
-            cv2.waitKey(0)
-            cv2.destroyAllWindows()
+            #plot some boxes
+            for pole in range(8,41):
+                for camera in range(1,7):
+                    try:
+                        # pole = 40
+                        # camera  = 2
+                        plot_cam = "P{}C{}".format(str(pole).zfill(2),str(camera).zfill(2))
+                        print(plot_cam)
+                        im_path = os.path.join(im_dir,plot_cam) + ".png"
+                        im = cv2.imread(im_path)
+                        plot_boxes = []
+                        plot_boxes_state = []
+                        for i in range(len(all_cam_names)):
+                            if all_cam_names[i] == plot_cam:
+                                plot_boxes.append(repro_state_boxes[i])
+                                plot_boxes_state.append(boxes[i])     
+                        
+                        name = [plot_cam for i in range(len(plot_boxes))]
+                        
+                        plot_boxes_state = torch.stack(plot_boxes_state)
+                        im = self.plot_state_boxes(im,plot_boxes_state,color = (255,0,0), name = name)
+                        
+                        plot_boxes = torch.stack(plot_boxes)
+                        im = self.plot_state_boxes(im, plot_boxes,color = (0,0,255),name = name)
+                        
+                        
+                        
+                        cv2.imshow("Frame", im)
+                        cv2.waitKey(500)
+                        #cv2.destroyAllWindows()
+                    except:
+                        pass
+               
             
         
 #%% MAIN        
     
 if __name__ == "__main__":
-    im_dir = "/home/derek/Documents/i24/i24_homography/data_real"
-    space_dir = "/home/derek/Documents/i24/i24_homography/aerial/to_P24"
-    save_file =  "new_hg_save.cpkl"
+    #im_dir = "/home/derek/Documents/i24/i24_homography/data_real"
+    #space_dir = "/home/derek/Documents/i24/i24_homography/aerial/to_P24"
+    save_file =  "test.cpkl"
+
+    im_dir = "/home/derek/Data/MOTION_HOMOGRAPHY_FINAL"
+    space_dir = "/home/derek/Documents/i24/i24_homography/aerial/all_poles_aerial_labels"
 
     hg = Curvilinear_Homography(save_file = save_file,space_dir = space_dir, im_dir = im_dir)
     hg.test_transformation(im_dir)

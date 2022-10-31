@@ -235,8 +235,17 @@ class RetinanetFullFramePipelineMulti(DetectPipeline):
             
         self.prev_frame = None
         
+        self.tm = Timer()
+        self.batches_processed = 0
+        
     def detect(self,frames):
         
+        self.batches_processed += 1
+        if self.batches_processed %50 == 0:
+            logger.info("Full Frame Pipeline Time Util: {}".format(self.tm),extra = self.tm.bins())
+            
+        self.tm.split("half frames")
+
         #logger.debug("Log message test from pipeline: {}".format(self.device))
         self.detector.training = False
         self.detector.eval()
@@ -251,11 +260,13 @@ class RetinanetFullFramePipelineMulti(DetectPipeline):
         if self.quantize:
             frames_cat = frames_cat.half()
         
+        self.tm.split("detect")
         with torch.no_grad():
             result = self.detector(frames_cat,MULTI_FRAME = True)
         return result
     
     def post_detect(self,detection_result,priors = None):
+        self.tm.split("post")
         confs,classes,detections,detection_idxs,embeddings = detection_result # detection_idx = which frame from idx each detection is from
         #confs,classes = torch.max(classes, dim = 2) 
         detection_cam_names = [] # dummy value in case no objects returned
@@ -296,7 +307,8 @@ class RetinanetFullFramePipelineMulti(DetectPipeline):
             detections     = detections[mask,:]
             detection_idxs = detection_idxs[mask]
             detection_cam_names = [self.cam_names[i] for i in detection_idxs]
-            
+        
+        self.tm.split("waiting")
         if len(confs) > 0:
             #detections = self.hg.space_to_state(detections)
     

@@ -248,10 +248,14 @@ class GPUBackendFrameGetter:
         """
         
         
-        frame = self.queue.get(timeout = 10)
-        ts = frame[1] 
-        im = frame[0]
+        try:
+            frame = self.queue.get(timeout = 10)
         
+            ts = frame[1] 
+            im = frame[0]
+        except:
+            im = None #torch.empty([6,1080,1920])
+            ts = None
         return im,ts
         
         # if False: #TODO - implement shutdown
@@ -401,6 +405,6 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
 
         
         if not NEXTFILE:
-            logger.warning("Loader ran out of input.")
-            raise Exception("Reached last file for directory {}".format(directory))
+            logger.warning("Loader {} ran out of input in directory {}.".format(gpuID,directory))
+            #raise Exception("Reached last file for directory {}".format(directory))
             

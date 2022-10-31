@@ -85,7 +85,7 @@ class DeviceBank():
         """
         
         self.batches_processed += 1
-        if self.batches_processed % 500 == 0:
+        if self.batches_processed % 50 == 0:
             logger.info("DeviceBank Time Util: {}".format(self.tm),extra = self.tm.bins())
 
         

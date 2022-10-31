@@ -136,7 +136,7 @@ class DeviceMap():
         n_devices = torch.cuda.device_count()
         
         devices = [[] for _ in range(n_devices)]
-        d_idx = 0
+        d_idx = 1
         for pri in [1,2,3]:
             for c_idx,cam in enumerate(camera_list):
                 if priorities[c_idx] == pri:

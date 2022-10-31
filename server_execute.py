@@ -83,7 +83,8 @@ class TrackingProcess:
         self.mask = None
         
         # load parameters
-        params = self.parse_cfg_wrapper(run_config)
+        params = parse_cfg("TRACK_CONFIG_SECTION",
+                           cfg_name=run_config, SCHEMA=False)
         
         # default input directory
         in_dir = params.input_directory #os.path.join(params.input_directory,trackID)
@@ -136,6 +137,8 @@ class TrackingProcess:
         dmap_devices = list(set(self.dmap.cam_devices))
         dmap_devices.sort()
         params.cuda_devices = dmap_devices
+        
+        print(self.dmap.cam_names,self.dmap.cam_devices)
         
         # intialize empty TrackState Object
         self.tstate = TrackState()
@@ -190,11 +193,11 @@ class TrackingProcess:
         
         
 
-    @log_warnings()
-    def parse_cfg_wrapper(self,run_config):
-        params = parse_cfg("TRACK_CONFIG_SECTION",
-                           cfg_name=run_config, SCHEMA=False)
-        return params
+    # @log_warnings()
+    # def parse_cfg_wrapper(self,run_config):
+    #     params = parse_cfg("TRACK_CONFIG_SECTION",
+    #                        cfg_name=run_config, SCHEMA=False)
+    #     return params
     
     
     
@@ -209,7 +212,7 @@ class TrackingProcess:
         :return  None
         """
 
-        save_file = os.path.join(self.checkpoint_dir,"tracking_checkpoint.cpkl")
+        save_file = os.path.join(self.checkpoint_dir,"{}.cpkl".self.collection_overwrite)
         with open(save_file,"wb") as f:
             pickle.dump([self.max_ts,self.tstate,self.collection_overwrite],f)
         logger.debug("Checkpointed TrackState object, time:{}s".format(self.max_ts))
@@ -227,7 +230,7 @@ class TrackingProcess:
         :param   next_target_time - float
         :return  None
         """  
-        save_file = os.path.join(self.checkpoint_dir,"tracking_checkpoint.cpkl")
+        save_file = os.path.join(self.checkpoint_dir,"{}.cpkl".self.collection_overwrite)
         
         if os.path.exists(save_file):
             with open(save_file,"rb") as f:
@@ -321,10 +324,12 @@ class TrackingProcess:
                             
                             # get next frames and timestamps
                             self.tm.split("Get Frames")
+                            previous_max_ts = self.max_ts
                             try:
                                 frames, timestamps = self.loader.get_frames()
                                 self.max_ts = max(timestamps)
                             except:
+                                self.max_ts = previous_max_ts + 0.1
                                 break # out of input
                             #print([len(f) for f in frames])
                             #[print(f.shape,f.device,"||") for f in frames]
@@ -439,18 +444,19 @@ class TrackingProcess:
                     
                     # text readout update
                     self.tm.split("Bookkeeping")
-                    fps = (max(timestamps) - self.start_ts)/(time.time() - start_time) * 30
+                    rr = (max(timestamps) - self.start_ts)/(time.time() - start_time) 
+                    fps = frames_processed / (time.time()-start_time)
                     max_dev = max(timestamps) - min(timestamps)
                     if frames_processed % 50 == 0:
-                        print("\n\nFrame:    Since Start:  Frame BPS:    Sync Timestamp:     Max ts Deviation:     Active Objects:    Written Objects:")
-                    print("\r{}        {:.3f}s       {:.2f}        {:.3f}              {:.3f}                {}               {}".format(frames_processed, time.time() - start_time,fps,max(timestamps), max_dev, len(self.tstate), len(self.dbw)), end='\r', flush=True)
+                        print("\n\nFrame:    Since Start:   FPS:    Realtime Ratio:    Sync Timestamp:     Max ts Deviation:     Active Objects:    Written Objects:")
+                    print("\r{}        {:.3f}s        {:.2f}        {:.3f}         {:.3f}             {:.3f}               {}           {}".format(frames_processed, time.time() - start_time,fps,rr,self.max_ts, max_dev, len(self.tstate), len(self.dbw)), end='\r', flush=True)
                 
                     # get next target time
                     #target_time = clock.tick()
                     frames_processed += 1
                     
             
-                    if (frames_processed+1) % 50 == 0:
+                    if (frames_processed) % 50 == 0:
                         metrics = {
                             "frame bps": fps,
                             "frame batches processed":frames_processed,
@@ -502,15 +508,20 @@ class TrackingProcess:
             #     shutil.copytree(os.environ["USER_CONFIG_DIRECTORY"],cache_dir)    
             #     logger.debug("Cached run settings in {}".format(cache_dir))
             
+            self.checkpoint()
             return fps
         else:
             self.logger.debug("No cameras assigned, shutting down.")
             
      
 if __name__ == "__main__":
-    
-    
-    __process_entry__()#cams=["P11C06","P08C06","P09C06","P10C06","P13C06","P12C06","P11C03","P08C04","P09C03","P10C03","P13C03","P12C03"])
+    trackID = ''
+    vidPath = ''
+        
+    if socket.gethostname() == "videonode1":
+        trackID = "633c5e8bfc34583315cd6bed"
+        vidPath = "/data/video/current/{}".format(trackID)
+    __process_entry__(vidPath = vidPath,trackID=trackID)#cams=["P11C06","P08C06","P09C06","P10C06","P13C06","P12C06","P11C03","P08C04","P09C03","P10C03","P13C03","P12C03"])
     
     # if True:
     #     import cv2
