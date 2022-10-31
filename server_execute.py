@@ -11,7 +11,8 @@ import signal
 import warnings
 
 #os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
-#os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_batch_6"
+if socket.gethostname() == 'quadro-cerulean':    
+    os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_batch_6"
 
 from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
@@ -94,7 +95,9 @@ class TrackingProcess:
         
         # default hostname
         hostname = socket.gethostname()
-        #hostname = "videonode2"
+        
+        if socket.gethostname() == 'quadro-cerulean':    
+            hostname = "videonode2"
         
         # default camera list
         cam_assignment =  params.cam_assignment
@@ -212,7 +215,7 @@ class TrackingProcess:
         :return  None
         """
 
-        save_file = os.path.join(self.checkpoint_dir,"{}.cpkl".self.collection_overwrite)
+        save_file = os.path.join(self.checkpoint_dir,"{}.cpkl".format(self.collection_overwrite))
         with open(save_file,"wb") as f:
             pickle.dump([self.max_ts,self.tstate,self.collection_overwrite],f)
         logger.debug("Checkpointed TrackState object, time:{}s".format(self.max_ts))
@@ -230,7 +233,7 @@ class TrackingProcess:
         :param   next_target_time - float
         :return  None
         """  
-        save_file = os.path.join(self.checkpoint_dir,"{}.cpkl".self.collection_overwrite)
+        save_file = os.path.join(self.checkpoint_dir,"{}.cpkl".format(self.collection_overwrite))
         
         if os.path.exists(save_file):
             with open(save_file,"rb") as f:

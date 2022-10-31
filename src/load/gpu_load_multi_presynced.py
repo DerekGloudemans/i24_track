@@ -271,7 +271,13 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
     gpuID = device
     device = torch.cuda.device("cuda:{}".format(gpuID))
     
-    
+    camera = re.search("P\d\dC\d\d",directory).group(0)
+    # load mask file
+    mask_path = "/home/derek/Documents/i24/i24_track/data/mask/{}_mask.png".format(camera)
+    mask_im = np.asarray(Image.open(mask_path))
+    mask_im = torch.from_numpy(mask_im) 
+    mask_im = mask_im.to(gpuID).unsqueeze(0).expand(3,mask_im.shape[0],mask_im.shape[1]) /255.0
+    logger.info("{} mask im shape: {}. Max value {}".format(mask_path,mask_im.shape,torch.max(mask_im)))
     
     # GET FIRST FILE
     # sort directory files (by timestamp)
@@ -360,6 +366,9 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
                 surface_tensor = pnvc.makefromDevicePtrUint8(surfPlane.GpuMem(), surfPlane.Width(), surfPlane.Height(), surfPlane.Pitch(), surfPlane.ElemSize())
                 surface_tensor.resize_(3, target_h,target_w)
                 
+                # apply mask
+                surface_tensor = surface_tensor* mask_im.expand(surface_tensor.shape)
+                
                 try:
                     surface_tensor = torch.nn.functional.interpolate(surface_tensor.unsqueeze(0),resize).squeeze(0)
                 except:
@@ -369,6 +378,7 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
                 # Normalize to range desired by NN. Originally it's 
                 surface_tensor = surface_tensor.type(dtype=torch.cuda.FloatTensor)/255.0
                 
+               
                 
                 # apply normalization
                 surface_tensor = F.normalize(surface_tensor,mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
@@ -406,5 +416,6 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
         
         if not NEXTFILE:
             logger.warning("Loader {} ran out of input in directory {}.".format(gpuID,directory))
+            break
             #raise Exception("Reached last file for directory {}".format(directory))
             
