@@ -273,7 +273,10 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
     
     camera = re.search("P\d\dC\d\d",directory).group(0)
     # load mask file
-    mask_path = "/home/derek/Documents/i24/i24_track/data/mask/{}_mask.png".format(camera)
+    if socket.get_hostname() == "quadro-cerulean":
+        mask_path = "/home/derek/Documents/i24/i24_track/data/mask/{}_mask.png".format(camera)
+    else:
+        mask_path = "/remote/i24_code/tracking/data/mask/{}_mask.png".format(camera)
     mask_im = np.asarray(Image.open(mask_path))
     mask_im = torch.from_numpy(mask_im) 
     mask_im = mask_im.to(gpuID).unsqueeze(0).expand(3,mask_im.shape[0],mask_im.shape[1]) /255.0

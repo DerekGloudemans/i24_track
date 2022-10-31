@@ -165,6 +165,7 @@ class Curvilinear_Homography():
                     6:"motorcycle",
                     7:"trailer"
                     }
+        self.polarity = -1
         
         if fill_gaps:
             self.fill_gaps()
@@ -1383,6 +1384,8 @@ class Curvilinear_Homography():
         
         # if direction is -1 (WB), y coordinate is negative
         new_pts[:,1] *= new_pts[:,5]
+        
+        new_pts[:,5] *= self.polarity
 
         # 5. Final state space obtained
         return new_pts
@@ -1405,6 +1408,8 @@ class Curvilinear_Homography():
         
         # 1. get x-y coordinate of closest point along spline (i.e. v = 0)
         d = points.shape[0]
+        
+        points[:,5] *= self.polarity
         
         if d == 0:
             return torch.empty([0,8,3], device = points.device)
@@ -1764,7 +1769,7 @@ class Curvilinear_Homography():
             boxes[:,2] *= 60
             boxes[:,3] *= 10
             boxes[:,4] *= 10
-            boxes[:,5] = torch.sign(boxes[:,1])
+            boxes[:,5] = self.polarity * torch.sign(boxes[:,1])
 
             
             space_boxes = self.state_to_space(boxes)
@@ -1784,12 +1789,12 @@ class Curvilinear_Homography():
             boxes = torch.rand(state_pts.shape[0],6) 
             boxes[:,:2] = state_pts[:,:2]
             #boxes[:,1] = boxes[:,1] * 240 - 120
-            boxes[:,2] = 10
-            boxes[:,3] = .10
-            boxes[:,4] = .10
-            boxes[:,5] = torch.sign(boxes[:,1])
+            boxes[:,2] *= 30
+            boxes[:,3] *= 10
+            boxes[:,4] *= 10
+            boxes[:,5] = self. polarity * torch.sign(boxes[:,1])
             
-            boxes[:,1] = 0.01
+            #boxes[:,1] = 0.01
             # boxes[:,2] = 30
             # boxes[:,3:5] = .01
             
@@ -1829,23 +1834,24 @@ class Curvilinear_Homography():
                         im = cv2.imread(im_path)
                         plot_boxes = []
                         plot_boxes_state = []
+                        labels = []
                         for i in range(len(all_cam_names)):
                             if all_cam_names[i] == plot_cam:
                                 plot_boxes.append(repro_state_boxes[i])
                                 plot_boxes_state.append(boxes[i])     
-                        
+                                labels.append(boxes[i,5])
                         name = [plot_cam for i in range(len(plot_boxes))]
                         
                         plot_boxes_state = torch.stack(plot_boxes_state)
-                        im = self.plot_state_boxes(im,plot_boxes_state,color = (255,0,0), name = name)
+                        im = self.plot_state_boxes(im,plot_boxes_state,color = (255,0,0), name = name,labels = labels)
                         
-                        plot_boxes = torch.stack(plot_boxes)
-                        im = self.plot_state_boxes(im, plot_boxes,color = (0,0,255),name = name)
+                        #plot_boxes = torch.stack(plot_boxes)
+                        #im = self.plot_state_boxes(im, plot_boxes,color = (0,0,255),name = name)
                         
                         
                         
                         cv2.imshow("Frame", im)
-                        cv2.waitKey(500)
+                        cv2.waitKey(0)
                         #cv2.destroyAllWindows()
                     except:
                         pass
@@ -1857,7 +1863,7 @@ class Curvilinear_Homography():
 if __name__ == "__main__":
     #im_dir = "/home/derek/Documents/i24/i24_homography/data_real"
     #space_dir = "/home/derek/Documents/i24/i24_homography/aerial/to_P24"
-    save_file =  "test.cpkl"
+    save_file =  "P08-P40_curvhg.cpkl"
 
     im_dir = "/home/derek/Data/MOTION_HOMOGRAPHY_FINAL"
     space_dir = "/home/derek/Documents/i24/i24_homography/aerial/all_poles_aerial_labels"
