@@ -165,7 +165,7 @@ class Curvilinear_Homography():
                     6:"motorcycle",
                     7:"trailer"
                     }
-        self.polarity = -1
+        self.polarity = 1
         
         if fill_gaps:
             self.fill_gaps()
@@ -1114,7 +1114,7 @@ class Curvilinear_Homography():
                     save_name = os.path.join(mask_save_dir,"{}_mask.png".format(camera))
                     cv2.imwrite(save_name,mask_im)
                     
-                    mask_im = cv2.resize(mask_im,(1920,1090))
+                    mask_im = cv2.resize(mask_im,(1920,1080))
                     save_name2 = os.path.join(mask_save_dir,"{}_mask_1080.png".format(camera))
                     cv2.imwrite(save_name2,mask_im)
                     
@@ -1869,7 +1869,7 @@ if __name__ == "__main__":
     space_dir = "/home/derek/Documents/i24/i24_homography/aerial/all_poles_aerial_labels"
 
     hg = Curvilinear_Homography(save_file = save_file,space_dir = space_dir, im_dir = im_dir)
-    hg.test_transformation(im_dir)
+    #hg.test_transformation(im_dir)
     hg.fill_gaps()
     #hg._generate_extents_file(im_dir)
-    #hg._generate_mask_images(im_dir)
+    hg._generate_mask_images(im_dir)

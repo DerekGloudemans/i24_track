@@ -197,10 +197,13 @@ class WriteWrapperConf():
         # self.prev_len = cur_len
         
         # optionally de-bias states before writing
+        
+        flip  = -1
+        
         ts_bias = 0
         if self.ts_bias:
             #ts_bias = -0.0275 #-0.0333
-            ts_bias = -0.003
+            #ts_bias = -0.003
         bias = np.zeros([6])
         if self.state_bias:
             bias = np.array([0, -0.2, -1.5, -0.4, 0.3])  
@@ -217,7 +220,7 @@ class WriteWrapperConf():
             cls = int(np.argmax(cls_data))
             timestamps = [item[0] + time_offset + ts_bias for item in history]
             x = [item[1][0].item() + (bias[0]*direction) for item in history]
-            y = [item[1][1].item() + bias[1] for item in history]
+            y = [flip * item[1][1].item() + bias[1] for item in history]
             l = [item[1][2].item() + bias[2] for item in history]
             w = [item[1][3].item() + bias[3] for item in history]
             h = [item[1][4].item() + bias[4] for item in history]

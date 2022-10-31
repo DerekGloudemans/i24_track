@@ -5,6 +5,7 @@ import PytorchNvCodec as pnvc
 
 import configparser
 import torch
+import socket
 
 import os
 import numpy as np
@@ -273,10 +274,10 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
     
     camera = re.search("P\d\dC\d\d",directory).group(0)
     # load mask file
-    if socket.get_hostname() == "quadro-cerulean":
+    if socket.gethostname() == "quadro-cerulean":
         mask_path = "/home/derek/Documents/i24/i24_track/data/mask/{}_mask.png".format(camera)
     else:
-        mask_path = "/remote/i24_code/tracking/data/mask/{}_mask.png".format(camera)
+        mask_path = "/remote/i24_code/tracking/data/mask/{}_mask_1080.png".format(camera)
     mask_im = np.asarray(Image.open(mask_path))
     mask_im = torch.from_numpy(mask_im) 
     mask_im = mask_im.to(gpuID).unsqueeze(0).expand(3,mask_im.shape[0],mask_im.shape[1]) /255.0
@@ -370,7 +371,7 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
                 surface_tensor.resize_(3, target_h,target_w)
                 
                 # apply mask
-                surface_tensor = surface_tensor* mask_im.expand(surface_tensor.shape)
+                #surface_tensor = surface_tensor* mask_im.expand(surface_tensor.shape)
                 
                 try:
                     surface_tensor = torch.nn.functional.interpolate(surface_tensor.unsqueeze(0),resize).squeeze(0)
@@ -380,7 +381,7 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
                 # This is optional and depends on what you NN expects to take as input
                 # Normalize to range desired by NN. Originally it's 
                 surface_tensor = surface_tensor.type(dtype=torch.cuda.FloatTensor)/255.0
-                
+                 
                
                 
                 # apply normalization

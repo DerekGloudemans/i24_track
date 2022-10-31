@@ -165,7 +165,8 @@ class TrackingProcess:
         
         # initialize Homography object
         self.hg = Curvilinear_Homography(params.homography_file,downsample = 2, fill_gaps = True) 
-    
+        self.hg.polarity = 1
+        
         if params.track:
             # initialize pipelines
             pipelines = params.pipelines
