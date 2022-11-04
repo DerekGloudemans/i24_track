@@ -19,6 +19,7 @@ import string
 import re
 import copy
 import sys
+import json
 
 from scipy import interpolate
 
@@ -102,12 +103,14 @@ class Curvilinear_Homography():
         
         # intialize correspondence
         self.downsample = downsample 
-        
+        self.polarity = 1
+        self.MM_offset = 0
+
         self.correspondence = {}
         if save_file is not None and os.path.exists(save_file):
             with open(save_file,"rb") as f:
                 # everything in correspondence is pickleable without object definitions to allow compatibility after class definitions change
-                self.correspondence,self.median_tck,self.median_u,self.guess_tck = pickle.load(f)
+                self.correspondence,self.median_tck,self.median_u,self.guess_tck,self.guess_tck2,self.MM_offset = pickle.load(f)
             
             # reload  parameters of curvilinear axis spline
             # rather than the spline itself for better pickle reloading compatibility
@@ -121,12 +124,13 @@ class Curvilinear_Homography():
             self.median_tck = None
             self.median_u = None
             self.guess_tck = None
+            self.guess_tck2 = None
             self.save(save_file)
             #  fit the axis spline once and collect extents
             self._fit_spline(space_dir)
             
             self.save(save_file)
-        
+    
 
 
         # object class info doesn't really belong in homography but it's unclear
@@ -165,14 +169,13 @@ class Curvilinear_Homography():
                     6:"motorcycle",
                     7:"trailer"
                     }
-        self.polarity = 1
         
         if fill_gaps:
             self.fill_gaps()
         
     def save(self,save_file):
         with open(save_file,"wb") as f:
-            pickle.dump([self.correspondence,self.median_tck,self.median_u,self.guess_tck],f)
+            pickle.dump([self.correspondence,self.median_tck,self.median_u,self.guess_tck,self.guess_tck2,self.MM_offset],f)
         
         
     def generate(self,
@@ -658,7 +661,7 @@ class Curvilinear_Homography():
         
         #print("Best Error: {}".format(best_error))
         
-    def _fit_spline(self,space_dir,use_MM_offset = False):
+    def _fit_spline(self,space_dir,use_MM_offset = True):
         """
         Spline fitting is done by:
             1. Assemble all points labeled along a yellow line in either direction
@@ -905,15 +908,7 @@ class Curvilinear_Homography():
         self.median_tck = final_tck
         self.median_u = final_u
         
-        if use_MM_offset:
-            # 11. Optionally, compute a median spline distance offset from mile markers
-            self.MM_offset = self._fit_MM_offset()
         
-            # 12. Optionally, recompute the same spline, this time accounting for the MM offset
-            med_spl_u += self.MM_offset
-            final_tck, final_u = interpolate.splprep(med_data.astype(float), s=s, u = med_spl_u)
-            self.median_tck = final_tck
-            self.median_u = final_u
         
         
         # Finally, resample the spline at 100 foot intervals, and use this to fit a final spline
@@ -937,14 +932,45 @@ class Curvilinear_Homography():
         print(med_data.shape,med_spl_u.shape)
     
     
+        # get guess_tck from all sparse
+        if True:
+            med_data = data
+            med_spl_u = np.array(ulist)
+
+            
         # sort by strictly increasing x
         sorted_idxs = np.argsort(med_data[0])
         med_data = med_data[:,sorted_idxs]
         med_spl_u = med_spl_u[sorted_idxs]
     
         self.guess_tck = interpolate.splrep(med_data[0].astype(float),med_spl_u.astype(float))
+        
+        # get the secondary inverse spline g(y) = u for guessing initial spline point
+        med_spl_u = np.array(med_spl_u)
+        print(med_data.shape,med_spl_u.shape)
     
-    def closest_spline_point(self,points, epsilon = 0.01, max_iterations = 100):
+    
+        # sort by strictly increasing x
+        sorted_idxs = np.argsort(med_data[1])
+        med_data = med_data[:,sorted_idxs]
+        med_spl_u = med_spl_u[sorted_idxs]
+        self.guess_tck2 = interpolate.splrep(med_data[1].astype(float),med_spl_u.astype(float))
+            
+
+            
+            
+        
+        if use_MM_offset:
+            # 11. Optionally, compute a median spline distance offset from mile markers
+            self.MM_offset = self._fit_MM_offset(space_dir)
+        
+            # # 12. Optionally, recompute the same spline, this time accounting for the MM offset
+            # med_spl_u += self.MM_offset
+            # final_tck, final_u = interpolate.splprep(med_data.astype(float), s=s, u = med_spl_u)
+            # self.median_tck = final_tck
+            # self.median_u = final_u
+    
+    def closest_spline_point(self,points, epsilon = 0.1, max_iterations = 100):
         """
         Given a tensor of points in 3D space, find the closest point on the median spline
         for each point as follows:
@@ -960,6 +986,8 @@ class Curvilinear_Homography():
         # intial guess at closest u values
         points = points.cpu().data.numpy()
         guess_u = interpolate.splev(points[:,0],self.guess_tck)
+        guess_u2 = interpolate.splev(points[:,1],self.guess_tck2)
+        guess_u = (guess_u + guess_u2)/2.0
         
         it = 0
         max_change = np.inf
@@ -987,10 +1015,41 @@ class Curvilinear_Homography():
         return guess_u
             
     
-    def _fit_MM_offset(self):
-        return 0
+    def _fit_MM_offset(self,space_dir):
+        ae_x = []
+        ae_y = []
+        ae_id = []
+        
+        file = os.path.join(space_dir,"milemarker.csv")
+
+        # load all points
+        dataframe = pd.read_csv(file)
+        dataframe = dataframe[dataframe['point_id'].notnull()]
+        
+        mm = dataframe["milemarker"].tolist()
+        st_x = dataframe["st_x"].tolist()
+        st_y = dataframe["st_y"].tolist()
+        
+        # convert each state plane  point into roadway
+        mm_space = torch.tensor([st_x,st_y,[0 for _ in range(len(st_x))]]).transpose(1,0)
+        mm_space = mm_space.unsqueeze(1).expand(mm_space.shape[0],8,3)
+        mm_state = self.space_to_state(mm_space)[:,:2]
+        
+        
+        # find the appropriate offest for each coordinate
+        mm_in_feet = torch.tensor(mm)*5280
+        
+        offset = mm_in_feet - mm_state[:,0]
+        
+        # pick one mm as the benchmark mm
+        
+        offset = offset[6].item() # currently this is mm 60
+        
+        return offset
+            
+                
     
-    def _generate_extents_file(self,im_dir,output_path = "cam_extents.config"):
+    def _generate_extents_file(self,im_dir,output_path = "cam_extents.config", mode = "rectangle"):
         """
         Produce a text file as utilized by tracking with name=xmin,xmax,ymin,ymax for each camera
         im_dir         - str - path to directory with cpkl files of attributes labeled in image coordinates
@@ -1040,20 +1099,23 @@ class Curvilinear_Homography():
             data[key] = self.im_to_state(key_data.float().unsqueeze(1),name = name, heights = 0, refine_heights = False)
             
         # 3. Find min enclosing extents for each camera
-        extents = {}
-        for key in data.keys():
-            key_data = data[key]
-            minx = torch.min(key_data[:,0]).item()
-            maxx = torch.max(key_data[:,0]).item()
-            miny = torch.min(key_data[:,1]).item()
-            maxy = torch.max(key_data[:,1]).item()
-            
-            extents[key] = [minx,maxx,miny,maxy]
         
+        extents = {}
+        if mode == "rectangle":
+            for key in data.keys():
+                key_data = data[key]
+                minx = torch.min(key_data[:,0]).item()
+                maxx = torch.max(key_data[:,0]).item()
+                miny = torch.min(key_data[:,1]).item()
+                maxy = torch.max(key_data[:,1]).item()
+                
+                extents[key] = [minx,maxx,miny,maxy]
+        
+        else:
+            extents = data
         
            
         # 4. Look for gaps
-         
         if False:
             minx_total = min([extents[key][0] for key in extents.keys()])
             maxx_total = max([extents[key][1] for key in extents.keys()])
@@ -1073,11 +1135,22 @@ class Curvilinear_Homography():
         # 5. write extents to output file
         keys = list(extents.keys())
         keys.sort()
-        with open(output_path,"w",encoding='utf-8') as f:
+        
+        if mode == "rectangle":
+            with open(output_path,"w",encoding='utf-8') as f:
+                for key in keys:
+                    key_data = extents[key]
+                    line = "{}={},{},{},{}\n".format(key,int(key_data[0]),int(key_data[1]),int(key_data[2]),int(key_data[3]))
+                    f.write(line)
+        else:
+            
             for key in keys:
-                key_data = extents[key]
-                line = "{}={},{},{},{}\n".format(key,int(key_data[0]),int(key_data[1]),int(key_data[2]),int(key_data[3]))
-                f.write(line)
+                extents[key] = extents[key][:,:2]
+                extents[key] = [[int(extents[key][i,0]+ self.MM_offset),int(extents[key][i,1])] for i in range(len(extents[key]))]
+            
+            with open(output_path,"w") as f:    
+                json.dump(extents,f, sort_keys = True)
+                    
 
     def _generate_mask_images(self,im_dir,mask_save_dir = "mask"):
         cam_data_paths = glob.glob(os.path.join(im_dir,"*.cpkl"))
@@ -1122,7 +1195,7 @@ class Curvilinear_Homography():
                     pass
         
     
-
+    
     
     #%% Conversion Functions
     @safe_name
@@ -1709,13 +1782,13 @@ class Curvilinear_Homography():
         
         
         ### Project each aerial imagery point into pixel space and get pixel error
-        if False:
+        if True:
             print("Test 1: Pixel Reprojection Error")
             start = time.time()
             running_error = []
             for name in self.correspondence.keys():
                 corr = self.correspondence[name]
-                name = name.split("_")[0]
+                #name = name.split("_")[0]
                 
                 space_pts = torch.from_numpy(corr["space_pts"]).unsqueeze(1)
                 space_pts = torch.cat((space_pts,torch.zeros([space_pts.shape[0],1,1])), dim = -1)
@@ -1725,11 +1798,11 @@ class Curvilinear_Homography():
                 
                 proj_space_pts = self.space_to_im(space_pts,name = namel).squeeze(1)
                 error = torch.sqrt(((proj_space_pts - im_pts)**2).sum(dim = 1)).mean()
-                print("Mean error for {}: {}px".format(name,error))
+                #print("Mean error for {}: {}px".format(name,error))
                 running_error.append(error)   
             end = time.time() - start
             print("Average Pixel Reprojection Error across all homographies: {}px in {} sec\n".format(sum(running_error)/len(running_error),end))
-            
+                
         
         ### Project each camera point into state plane coordinates and get ft error
         if True:
@@ -1740,7 +1813,7 @@ class Curvilinear_Homography():
             all_cam_names = []
             for name in self.correspondence.keys():
                 corr = self.correspondence[name]
-                name = name.split("_")[0]
+                #name = name.split("_")[0]
     
                 
                 space_pts = torch.from_numpy(corr["space_pts"])
@@ -1755,7 +1828,7 @@ class Curvilinear_Homography():
                 proj_im_pts = self.im_to_space(im_pts,name = namel, heights = 0, refine_heights = False).squeeze(1)
                 
                 error = torch.sqrt(((proj_im_pts - space_pts)**2).sum(dim = 1)).mean()
-                print("Mean error for {}: {}ft".format(name,error))
+                #print("Mean error for {}: {}ft".format(name,error))
                 running_error.append(error)
             print("Average Space Reprojection Error across all homographies: {}ft\n".format(sum(running_error)/len(running_error)))
             
@@ -1783,8 +1856,9 @@ class Curvilinear_Homography():
             print("Test 3: Random Box Reprojection Error (State-Im-State)")
             
             all_im_pts = torch.cat(all_im_pts,dim = 0)
+            start = time.time()
             state_pts = self.im_to_state(all_im_pts, name = all_cam_names, heights = 0,refine_heights = False)
-            
+            print("im->state took {}s for {} boxes".format(time.time()-start, all_im_pts.shape[0]))
             ### Create a random set of boxes
             boxes = torch.rand(state_pts.shape[0],6) 
             boxes[:,:2] = state_pts[:,:2]
@@ -1800,9 +1874,10 @@ class Curvilinear_Homography():
             
             # get appropriate camera for each object
             
-            
+            start = time.time()
             im_boxes = self.state_to_im(boxes,name = all_cam_names)
-            
+            print("state->im took {}s for {} boxes".format(time.time()-start, all_im_pts.shape[0]))
+
             # plot some of the boxes
             repro_state_boxes = self.im_to_state(im_boxes,name = all_cam_names,heights = boxes[:,4],refine_heights = True)
             
@@ -1821,7 +1896,7 @@ class Curvilinear_Homography():
             error = torch.mean(error)
             print("Average Im-State-Im Reprojection Error: {} px\n".format(error))
         
-        if True: 
+        if False: 
             #plot some boxes
             for pole in range(8,41):
                 for camera in range(1,7):
@@ -1863,13 +1938,15 @@ class Curvilinear_Homography():
 if __name__ == "__main__":
     #im_dir = "/home/derek/Documents/i24/i24_homography/data_real"
     #space_dir = "/home/derek/Documents/i24/i24_homography/aerial/to_P24"
-    save_file =  "P08-P40_curvhg.cpkl"
+    save_file =  "P08_P40.cpkl"
 
     im_dir = "/home/derek/Data/MOTION_HOMOGRAPHY_FINAL"
     space_dir = "/home/derek/Documents/i24/i24_homography/aerial/all_poles_aerial_labels"
 
     hg = Curvilinear_Homography(save_file = save_file,space_dir = space_dir, im_dir = im_dir)
-    #hg.test_transformation(im_dir)
-    hg.fill_gaps()
+    hg.test_transformation(im_dir)
+    #hg.fill_gaps()
     #hg._generate_extents_file(im_dir)
-    hg._generate_mask_images(im_dir)
+    #hg._generate_mask_images(im_dir)
+    
+    hg._generate_extents_file(im_dir,mode = "", output_path = "cam_extents_polygon.json")

@@ -368,6 +368,11 @@ class Torch_KF(object):
         #self.X = torch.mm(self.X,self.F.transpose(0,1)) + self.mu_Q
         F_rep = self.F.unsqueeze(0).repeat(len(self.X),1,1)
         F_rep[:,0,5] = self.D * dt
+        
+        # scale y uncertainty as a function of speed
+        
+            
+        
         self.X = torch.bmm(F_rep,self.X.unsqueeze(2)).squeeze(2) + self.mu_Q.repeat(len(self.X),1)
         
         
@@ -389,6 +394,10 @@ class Torch_KF(object):
         else:
             step4 = self.Q.repeat(len(self.P),1,1)
         
+        
+        if True:
+            step4[:,1,1] *= torch.clamp( self.X[:,5] / 50,min = 0.05, max = 1)
+            
         # scale Q by the timestamp, assuming model error is linearly correlated to dt
         # in fact, this should be scaled at with the square root of dt, see https://stats.stackexchange.com/questions/49300/how-does-one-apply-kalman-smoothing-with-irregular-time-steps/585962#585962
         

@@ -257,9 +257,11 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
                 fr.copy(), priors_selected, name=cam_names[f_idx], labels=None,thickness = 1, color = (0,0,255))
 
 
-        # plot timestamp
-        fr = cv2.putText(fr.copy(), "Timestamp: {:.3f}s".format(ts[f_idx]), (10,70), cv2.FONT_HERSHEY_PLAIN,2,(0,0,0),3)
-        fr = cv2.putText(fr.copy(), "Camera: {}".format(cam_names[f_idx]), (10,30), cv2.FONT_HERSHEY_PLAIN,2,(0,0,0),3)
+        # plot timestamps
+        fr = cv2.putText(fr.copy(), "Timestamp: {:.3f}s".format(ts[f_idx]), (10,70), cv2.FONT_HERSHEY_PLAIN,3,(0,0,0),6)
+        fr = cv2.putText(fr.copy(), "Camera: {}".format(cam_names[f_idx]), (10,30), cv2.FONT_HERSHEY_PLAIN,3,(0,0,0),6)
+        fr = cv2.putText(fr.copy(), "Timestamp: {:.3f}s".format(ts[f_idx]), (10,70), cv2.FONT_HERSHEY_PLAIN,3,(255,255,255),3)
+        fr = cv2.putText(fr.copy(), "Camera: {}".format(cam_names[f_idx]), (10,30), cv2.FONT_HERSHEY_PLAIN,3,(255,255,255),3)
         
         # append to array of frames
         plot_frames.append(fr)
@@ -287,7 +289,7 @@ def plot_scene(tstate, frames, ts, gpu_cam_names, hg, colors, mask=None, extents
     except:
         cv2.imwrite("./temp_frames/{}.png".format(str(fr_num).zfill(4)),cat_im*255)
     # plot
-    if True:
+    if False:
         cv2.imshow("frame", cat_im)
         # cv2.setWindowTitle("frame",str(self.frame_num))
         key = cv2.waitKey(1)

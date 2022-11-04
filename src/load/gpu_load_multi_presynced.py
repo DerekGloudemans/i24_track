@@ -85,16 +85,17 @@ class MCLoader():
         self.true_start_time = self.get_start_time(cam_names,cam_sequences)
         self.true_start_time += 1
 
-        print("True Start Time: {}   Start Time: {}".format(self.true_start_time,start_time))        
+        print("Loader says: True File Start Time: {}   User/Checkpoint Supplied Start Time: {}".format(self.true_start_time,start_time))        
         if start_time is None:
             self.start_time = self.true_start_time
         else:
             self.start_time = start_time
             
-        print("Start time: {}".format(self.start_time))
+        print("Loader sent start time: {} to worker processes".format(self.start_time))
         
         # device loader is a list of lists, with list i containing all loaders for device i (hopefully in order but not well enforced by dictionary so IDK)
         self.device_loaders = [[] for i in range(torch.cuda.device_count())]
+        self.device_loader_cam_names =  [[] for i in range(torch.cuda.device_count())]
         for key in cam_names:
             dev_id = self.cam_devices[key.lower().split("_")[0]]
             
@@ -106,7 +107,16 @@ class MCLoader():
             loader = GPUBackendFrameGetter(sequence,dev_id,ctx,resize = resize,start_time = self.start_time, Hz = Hz)
             
             self.device_loaders[dev_id].append(loader)
+            self.device_loader_cam_names[dev_id].append(sequence)
             
+        
+        self.returned_counter = 0
+        self.target_time = self.start_time
+        self.Hz = Hz
+        
+        for dev in self.device_loaders:
+            for loader in dev:
+                loader.__next__(timeout = 60)
      
     @catch_critical()                          
     def _parse_device_mapping(self,mapping_file):
@@ -128,7 +138,8 @@ class MCLoader():
         self.cam_devices = mapping       
         
     @catch_critical()     
-    def get_frames(self,target_time = None, tolerance = 1/60):
+    def get_frames(self,tolerance = 1/60):
+        self.target_time = self.start_time + self.returned_counter * 1/self.Hz
         
         try:
             # accumulators
@@ -138,8 +149,19 @@ class MCLoader():
             # advance each camera loader
             for dev_idx,this_dev_loaders in enumerate(self.device_loaders):
                 for l_idx,loader in enumerate(this_dev_loaders):
-                    # require an advancement of at least one frame
-                    frame,ts = next(loader)
+                    
+                    if loader.item[1] >self.target_time + tolerance: # this frame is too far ahead, do not increment
+                        frame = torch.zeros(3,1080,1920,device= torch.device("cuda:{}".format(dev_idx)))
+                        ts = -np.inf
+                        logger.warning("Loader for sequence {} is too far ahead and did not increment frames. Possible dropped packet.".format(self.device_loader_cam_names[dev_idx][l_idx]))
+                        
+                    else:
+                        ts = -1
+                        while ts < self.target_time - tolerance:
+                            # advancement of at least one frame
+                            frame,ts = loader.item
+                            next(loader)
+                        
                     frames[dev_idx].append(frame)
                     timestamps.append(ts)
                         
@@ -149,8 +171,11 @@ class MCLoader():
                 if len(lis) == 0: # occurs when no frames are mapped to a GPU
                     out.append(torch.empty(0))
                 else:
+                    
                     out.append(torch.stack(lis))
             #timestamps = torch.tensor([torch.tensor(item) for item in timestamps],dtype = torch.double)
+            
+            self.returned_counter += 1 
             return out,timestamps
     
         except: # end of input
@@ -220,7 +245,7 @@ class GPUBackendFrameGetter:
         # instead of a single file, pass a directory, and a start time
         self.worker = ctx.Process(target=load_queue_continuous_vpf, args=(self.queue,directory,device,buffer_size,resize,start_time,Hz),daemon = True)
         self.worker.start()   
-            
+        
 
     def __len__(self):
         """
@@ -232,7 +257,7 @@ class GPUBackendFrameGetter:
         return 1000000
     
     
-    def __next__(self):
+    def __next__(self,timeout = 10):
         """
         Description
         -----------
@@ -250,14 +275,17 @@ class GPUBackendFrameGetter:
         
         
         try:
-            frame = self.queue.get(timeout = 10)
+            frame = self.queue.get(timeout = timeout)
         
             ts = frame[1] 
             im = frame[0]
-        except:
+        except Exception as e:
+            logger.error("Got exception {}. None frame will be returned and tracking will shut down".format(e))
             im = None #torch.empty([6,1080,1920])
             ts = None
-        return im,ts
+            
+        self.item = (im,ts)
+        #return im,ts
         
         # if False: #TODO - implement shutdown
         #     self.worker.terminate()
@@ -275,12 +303,12 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
     camera = re.search("P\d\dC\d\d",directory).group(0)
     # load mask file
     if socket.gethostname() == "quadro-cerulean":
-        mask_path = "/home/derek/Documents/i24/i24_track/data/mask/{}_mask.png".format(camera)
+        mask_path = "/home/derek/Documents/i24/i24_track/data/mask/{}_mask_1080.png".format(camera)
     else:
         mask_path = "/remote/i24_code/tracking/data/mask/{}_mask_1080.png".format(camera)
     mask_im = np.asarray(Image.open(mask_path))
     mask_im = torch.from_numpy(mask_im) 
-    mask_im = mask_im.to(gpuID).unsqueeze(0).expand(3,mask_im.shape[0],mask_im.shape[1]) /255.0
+    mask_im = torch.clamp(mask_im.to(gpuID).unsqueeze(0).expand(3,mask_im.shape[0],mask_im.shape[1]),min = 0, max = 1)
     logger.info("{} mask im shape: {}. Max value {}".format(mask_path,mask_im.shape,torch.max(mask_im)))
     
     # GET FIRST FILE
@@ -300,6 +328,7 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
             if nftime >= start_time:
                 break
         except:
+            logger.warning("Selecting the file to load from, the last file was selected.")
             break # no next file so this file should be the one
     
     logger.debug("Loading frames from {}".format(file))
@@ -371,7 +400,7 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
                 surface_tensor.resize_(3, target_h,target_w)
                 
                 # apply mask
-                #surface_tensor = surface_tensor* mask_im.expand(surface_tensor.shape)
+                surface_tensor = surface_tensor* mask_im.expand(surface_tensor.shape)
                 
                 try:
                     surface_tensor = torch.nn.functional.interpolate(surface_tensor.unsqueeze(0),resize).squeeze(0)

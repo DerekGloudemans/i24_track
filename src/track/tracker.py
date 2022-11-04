@@ -475,7 +475,7 @@ class SmartTracker(BaseTracker):
             
             
             # 5. Remove lost objects (too many frames since last detected)    
-            if False and self.fsld_max != -1:
+            if self.fsld_max != -1:
                 removals = []
                 ids,states = tstate()  
                 for i in range(len(ids)):
@@ -552,7 +552,7 @@ class SmartTracker(BaseTracker):
             ids,states = tstate()
             for i in range(len(ids)):
                 id = ids[i].item()
-                if tstate.fsld[id] > self.fsld_max or states[i][0] < self.fov[0] or states[i][0] > self.fov[1]:
+                if  states[i][0] < self.fov[0] or states[i][0] > self.fov[1]:
                     removals.append(id)
                     
             objs = tstate.remove(removals)

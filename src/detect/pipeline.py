@@ -834,8 +834,9 @@ class RetinanetCropFramePipelineMulti(DetectPipeline):
         # 3. Convert to space    #### THIS IS THE SLOW ONE!!!  ## Note taht we could convert base only for the selection and then do second pass for selected ones only (about 1/2 speedup)
         self.tm.split("Post:->space",SYNC=True)  
         n_objs = reg_boxes.shape[0]
+        n_keep = reg_boxes.shape[1]
         cam_names_repeated = [cam for cam in cam_names for i in range(reg_boxes.shape[1])]
-        reg_boxes_state = self.hg.im_to_state(reg_boxes.view(-1,8,2),name = cam_names_repeated,classes = classes.view(-1))
+        reg_boxes_state = self.hg.im_to_state(reg_boxes.view(-1,8,2),name = cam_names_repeated,classes = classes.view(-1)).view(n_objs,n_keep,-1)
         
  
         # 4. Select best box
@@ -876,6 +877,15 @@ class RetinanetCropFramePipelineMulti(DetectPipeline):
             
             self.tm.split("Crop:stack",SYNC=True)
             crop_boxes = torch.stack([minx2,miny2,maxx2,maxy2]).transpose(0,1).to(self.device)
+            
+            # clamp erroneous boxes
+            pad = -20
+            crop_boxes[:,0] = crop_boxes[:,0].clamp(-pad,1920+pad)
+            crop_boxes[:,2] = crop_boxes[:,2].clamp(-pad,1920+pad)
+            crop_boxes[:,1] = crop_boxes[:,1].clamp(-pad,1080+pad)
+            crop_boxes[:,3] = crop_boxes[:,3].clamp(-pad,1080+pad)
+
+            
             return crop_boxes
         
     def _local_to_global(self,preds,crop_boxes):
@@ -912,31 +922,76 @@ class RetinanetCropFramePipelineMulti(DetectPipeline):
         returns  - [n,6] array of best matched objects
         """
 
+        # convert preds to roadway coordinate space
+        #print(preds.shape,a_priori.shape)
+        n,d,_ = preds.shape 
         
-        # convert  preds into space 
-        preds_space = self.hg.state_to_space(preds.clone())
-        preds_space = preds_space.reshape(n_objs,-1,8,3)
-        preds = preds.reshape(n_objs,-1,6)
+        boxes = preds
+        #d = boxes.shape[0]
+        intermediate_boxes = torch.zeros([n,d,4,2], device = boxes.device)
+        intermediate_boxes[:,:,0,0] = boxes[:,:,0] 
+        intermediate_boxes[:,:,0,1] = boxes[:,:,1] - boxes[:,:,3]/2.0
+        intermediate_boxes[:,:,1,0] = boxes[:,:,0] 
+        intermediate_boxes[:,:,1,1] = boxes[:,:,1] + boxes[:,:,3]/2.0
         
-        n = preds_space.shape[0] 
-        d = preds_space.shape[1]
-        
-        # convert into xmin ymin xmax ymax form        
-        boxes_new = torch.zeros([n,d,4],device = preds.device)
-        boxes_new[:,:,0] = torch.min(preds_space[:,:,0:4,0],dim = 2)[0]
-        boxes_new[:,:,2] = torch.max(preds_space[:,:,0:4,0],dim = 2)[0]
-        boxes_new[:,:,1] = torch.min(preds_space[:,:,0:4,1],dim = 2)[0]
-        boxes_new[:,:,3] = torch.max(preds_space[:,:,0:4,1],dim = 2)[0]
+        intermediate_boxes[:,:,2,0] = boxes[:,:,0] + boxes[:,:,2]*boxes[:,:,5]
+        intermediate_boxes[:,:,2,1] = boxes[:,:,1] + boxes[:,:,2]*boxes[:,:,5] - boxes[:,:,3]/2.0
+        intermediate_boxes[:,:,3,0] = boxes[:,:,0] + boxes[:,:,2]*boxes[:,:,5]
+        intermediate_boxes[:,:,3,1] = boxes[:,:,1] + boxes[:,:,2]*boxes[:,:,5] + boxes[:,:,3]/2.0
+
+        boxes_new = torch.zeros([n,d,4],device = boxes.device)
+        boxes_new[:,:,0] = torch.min(intermediate_boxes[:,:,0:4,0],dim = 2)[0]
+        boxes_new[:,:,2] = torch.max(intermediate_boxes[:,:,0:4,0],dim = 2)[0]
+        boxes_new[:,:,1] = torch.min(intermediate_boxes[:,:,0:4,1],dim = 2)[0]
+        boxes_new[:,:,3] = torch.max(intermediate_boxes[:,:,0:4,1],dim = 2)[0]
         preds_space = boxes_new
         
-        # convert a_priori into space
-        a_priori = self.hg.state_to_space(a_priori.clone())
-        boxes_new = torch.zeros([n,4],device =  a_priori.device)
-        boxes_new[:,0] = torch.min(a_priori[:,0:4,0],dim = 1)[0]
-        boxes_new[:,2] = torch.max(a_priori[:,0:4,0],dim = 1)[0]
-        boxes_new[:,1] = torch.min(a_priori[:,0:4,1],dim = 1)[0]
-        boxes_new[:,3] = torch.max(a_priori[:,0:4,1],dim = 1)[0]
+        
+        # convert a priori to roadway coordinate space
+        boxes = a_priori
+        #n = boxes.shape[0]
+        intermediate_boxes = torch.zeros([n,4,2], device = boxes.device)
+        intermediate_boxes[:,0,0] = boxes[:,0] 
+        intermediate_boxes[:,0,1] = boxes[:,1] - boxes[:,3]/2.0
+        intermediate_boxes[:,1,0] = boxes[:,0] 
+        intermediate_boxes[:,1,1] = boxes[:,1] + boxes[:,3]/2.0
+        
+        intermediate_boxes[:,2,0] = boxes[:,0] + boxes[:,2]*boxes[:,5]
+        intermediate_boxes[:,2,1] = boxes[:,1] + boxes[:,2]*boxes[:,5] - boxes[:,3]/2.0
+        intermediate_boxes[:,3,0] = boxes[:,0] + boxes[:,2]*boxes[:,5]
+        intermediate_boxes[:,3,1] = boxes[:,1] + boxes[:,2]*boxes[:,5] + boxes[:,3]/2.0
+
+        boxes_new = torch.zeros([boxes.shape[0],4],device = boxes.device)
+        boxes_new[:,0] = torch.min(intermediate_boxes[:,0:4,0],dim = 1)[0]
+        boxes_new[:,2] = torch.max(intermediate_boxes[:,0:4,0],dim = 1)[0]
+        boxes_new[:,1] = torch.min(intermediate_boxes[:,0:4,1],dim = 1)[0]
+        boxes_new[:,3] = torch.max(intermediate_boxes[:,0:4,1],dim = 1)[0]
         a_priori = boxes_new
+        
+        # # convert  preds into space 
+        # preds_space = self.hg.state_to_space(preds.clone())
+        # preds_space = preds_space.reshape(n_objs,-1,8,3)
+        # preds = preds.reshape(n_objs,-1,6)
+        
+        # n = preds_space.shape[0] 
+        # d = preds_space.shape[1]
+        
+        # # convert into xmin ymin xmax ymax form        
+        # boxes_new = torch.zeros([n,d,4],device = preds.device)
+        # boxes_new[:,:,0] = torch.min(preds_space[:,:,0:4,0],dim = 2)[0]
+        # boxes_new[:,:,2] = torch.max(preds_space[:,:,0:4,0],dim = 2)[0]
+        # boxes_new[:,:,1] = torch.min(preds_space[:,:,0:4,1],dim = 2)[0]
+        # boxes_new[:,:,3] = torch.max(preds_space[:,:,0:4,1],dim = 2)[0]
+        # preds_space = boxes_new
+        
+        # # convert a_priori into space
+        # a_priori = self.hg.state_to_space(a_priori.clone())
+        # boxes_new = torch.zeros([n,4],device =  a_priori.device)
+        # boxes_new[:,0] = torch.min(a_priori[:,0:4,0],dim = 1)[0]
+        # boxes_new[:,2] = torch.max(a_priori[:,0:4,0],dim = 1)[0]
+        # boxes_new[:,1] = torch.min(a_priori[:,0:4,1],dim = 1)[0]
+        # boxes_new[:,3] = torch.max(a_priori[:,0:4,1],dim = 1)[0]
+        # a_priori = boxes_new
         
         # a_priori is now [n,4] need to repeat by [d]
         a_priori = a_priori.unsqueeze(1).repeat(1,d,1)

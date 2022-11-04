@@ -12,7 +12,7 @@ import warnings
 
 #os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_eval2"
 if socket.gethostname() == 'quadro-cerulean':    
-    os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_batch_6"
+    os.environ["USER_CONFIG_DIRECTORY"] = "/home/derek/Documents/i24/i24_track/config/lambda_cerulean_batch_7"
 
 from i24_logger.log_writer         import logger,catch_critical,log_warnings
 
@@ -42,8 +42,8 @@ from src.scene.curvilinear_homography import Curvilinear_Homography
 #from src.load.cpu_load             import DummyNoiseLoader #,MCLoader
 #from src.load.gpu_load             import MCLoader
 
-def __process_entry__(cams=[], vidPath='', ingID='', trackID=''):
-    p = TrackingProcess(cams = cams,vidPath = vidPath, ingID = ingID, trackID = trackID)
+def __process_entry__(cams=[], vidPath='', ingID='', trackID='', endTime=0,startTime=0):
+    p = TrackingProcess(cams = cams,vidPath = vidPath, ingID = ingID, trackID = trackID,endTime=endTime,startTime=startTime)
     signal.signal(signal.SIGINT, p.sigint_handler)
     signal.signal(signal.SIGUSR1, p.sigusr_handler)
     p.main()
@@ -55,7 +55,7 @@ def force_cudnn_initialization():
 
 class TrackingProcess:
     
-    def __init__(self,cams=[], vidPath='', ingID='', trackID=''):
+    def __init__(self,cams=[], vidPath='', ingID='', trackID='', endTime=0, startTime=0):
         """
         Set up persistent process variables here
         """
@@ -79,6 +79,8 @@ class TrackingProcess:
         self.tm = Timer()
         self.tm.split("Init")
         
+        par = {"cams":cams,"vidPath":vidPath,"ingID":ingID,"trackID":trackID,"endTime":endTime,"startTime":startTime}
+        self.logger.info("Got input params: {}".format(par),extra = par)
         run_config = "execute.config"       
         #mask = ["p2c1", "p2c3","p2c5","p3c1"] #["p46c01","p46c02", "p46c03", "p46c04", "p46c05","p46c06"]
         self.mask = None
@@ -91,7 +93,7 @@ class TrackingProcess:
         in_dir = params.input_directory #os.path.join(params.input_directory,trackID)
         self.checkpoint_dir = in_dir
         
-        
+        self.max_crops = params.max_crops
         
         # default hostname
         hostname = socket.gethostname()
@@ -150,7 +152,9 @@ class TrackingProcess:
         # load checkpoint
         target_time,self.tstate,self.collection_overwrite = self.load_checkpoint(target_time,self.tstate,self.collection_overwrite)
         
-        
+        if (target_time is None and startTime > 0) or (target_time is not None and target_time < startTime):
+            target_time = startTime
+            
         print("Collection Name: {}    Track ID:  {}   Video Path: {}   Checkpoint Path: {}".format(self.collection_overwrite,trackID,in_dir, self.checkpoint_dir))
         
         # get frame handlers
@@ -187,14 +191,14 @@ class TrackingProcess:
             
         # initialize DBWriter object
         if params.write_db:
-            self.dbw = WriteWrapper(collection_overwrite = self.collection_overwrite,server_id = hostname)
+            self.dbw = WriteWrapper(collection_overwrite = self.collection_overwrite,server_id = hostname, mm_offset = self.hg.MM_offset)
         else:
             self.dbw = []
 
         # cache params
         self.params = params
         
-        
+        self.end_time = (np.inf if endTime <= 0 else endTime)
         
 
     # @log_warnings()
@@ -306,13 +310,9 @@ class TrackingProcess:
             
             self.logger.debug("Initialization Complete. Starting tracking at {}s".format(start_time))
         
-            end_time = np.inf
-            if self.params.end_time != -1:
-                end_time = self.params.end_time
-                
             # readout headers
             try:
-                while self.max_ts < end_time:
+                while self.max_ts <self. end_time:
                         
         
                     
@@ -323,7 +323,9 @@ class TrackingProcess:
                         # select pipeline for this frame
                         pidx = frames_processed % len(self.params.pipeline_pattern)
                         pipeline_idx = self.params.pipeline_pattern[pidx]
-                
+                        if len(self.tstate) > self.max_crops:
+                            pipeline_idx = 0
+                        
                         if pipeline_idx != -1: # -1 means skip frame
                             
                             # get next frames and timestamps
@@ -332,7 +334,8 @@ class TrackingProcess:
                             try:
                                 frames, timestamps = self.loader.get_frames()
                                 self.max_ts = max(timestamps)
-                            except:
+                            except Exception as e:
+                                logger.warning("Exiting main loop beacuse error thrown in get_frames() or max_ts calculation: {}".format(e))
                                 self.max_ts = previous_max_ts + 0.1
                                 break # out of input
                             #print([len(f) for f in frames])
@@ -341,7 +344,7 @@ class TrackingProcess:
                             #print(frames_processed,timestamps[0],target_time) # now we expect almost an exactly 30 fps framerate and exactly 30 fps target framerate
                             
                             if frames is None:
-                                logger.warning("Ran out of input. Tracker is shutting down")
+                                logger.warning("frames is None. Tracker is shutting down")
                                 break #out of input
                             ts_trunc = [item - self.start_ts for item in timestamps]
                             
@@ -372,6 +375,7 @@ class TrackingProcess:
                             prior_stack = self.dmap.route_objects(
                                 obj_ids, priors, device_idxs, camera_idxs, run_device_ids=self.params.cuda_devices)
                         
+                        
                             # get detections
                             self.tm.split("Detect {}".format(pipeline_idx),SYNC = True)
                             detections, confs, classes, detection_cam_names, associations = self.dbank(
@@ -398,9 +402,17 @@ class TrackingProcess:
                                 classes = classes[keep]
                                 detection_times = detection_times[keep]
                                 detection_cam_names = [detection_cam_names[_] for _ in keep]
-                            
-                            
+                              
+                            # filter out any detections with a bad timestamp 
+                            keep = torch.where(detection_times > -10, 1, 0).nonzero().squeeze()
+                            detections = detections[keep,:]
+                            confs = confs[keep]
+                            classes = classes[keep]
+                            detection_times = detection_times[keep]
+                            detection_cam_names = [detection_cam_names[_] for _ in keep]
                                 
+                                
+                            # Association
                             self.tm.split("Associate",SYNC = True)
                             if pipeline_idx == 0:
                                 detections_orig = detections.clone()
@@ -448,13 +460,15 @@ class TrackingProcess:
                     
                     # text readout update
                     self.tm.split("Bookkeeping")
-                    rr = (max(timestamps) - self.start_ts)/(time.time() - start_time) 
+                    rr = (max(timestamps) - self.loader.start_time)/(time.time() - start_time) 
                     fps = frames_processed / (time.time()-start_time)
                     max_dev = max(timestamps) - min(timestamps)
+                    est_finish = (self.end_time - max(timestamps)) / (rr+ 1e-08)
                     if frames_processed % 50 == 0:
-                        print("\n\nFrame:    Since Start:   FPS:    Realtime Ratio:    Sync Timestamp:     Max ts Deviation:     Active Objects:    Written Objects:")
-                    print("\r{}        {:.3f}s        {:.2f}        {:.3f}         {:.3f}             {:.3f}               {}           {}".format(frames_processed, time.time() - start_time,fps,rr,self.max_ts, max_dev, len(self.tstate), len(self.dbw)), end='\r', flush=True)
-                
+                        print("\n\nFrame:     Wall Time:       Since Start:        FPS:        Realtime Ratio:    Sync Time since start:     Max ts dev:     Active Objects:    Term Objects:    Estimated time to finish:")
+                    print(      "{}         {:.1f} s        {:.3f} s        {:.2f}          {:.3f}               {:.3f} s                    {:.3f} s             {}              {}               {:.1f} s".format(frames_processed,time.time(), time.time() - start_time,fps,rr,self.max_ts-self.start_ts, max_dev, len(self.tstate), term_objects,est_finish))
+                    #print(      "\r{}         {:.1f}s        {:.3f}s        {:.2f}          {:.3f}               {:.3f}                    {:.3f}              {}               {}          {:.1f}s".format(frames_processed,time.time(), time.time() - start_time,fps,rr,self.max_ts-self.start_ts, max_dev, len(self.tstate), term_objects,est_finish), end='\r', flush=True)
+
                     # get next target time
                     #target_time = clock.tick()
                     frames_processed += 1
@@ -522,7 +536,7 @@ if __name__ == "__main__":
     trackID = ''
     vidPath = ''
         
-    if socket.gethostname() == "videonode1":
+    if socket.gethostname() == "videonode2":
         trackID = "633c5e8bfc34583315cd6bed"
         vidPath = "/data/video/current/{}".format(trackID)
     __process_entry__(vidPath = vidPath,trackID=trackID)#cams=["P11C06","P08C06","P09C06","P10C06","P13C06","P12C06","P11C03","P08C04","P09C03","P10C03","P13C03","P12C03"])
