@@ -234,8 +234,12 @@ class DeviceMap():
             
         
         # no objects
-        if len(obj_ids) == 0:
+        try:
+            if len(obj_ids) == 0:
+                return [[[],[],[],[]] for i in range(len(run_device_ids))]
+        except:
             return [[[],[],[],[]] for i in range(len(run_device_ids))]
+
         
         prior_stack = []
         for gpu_id in run_device_ids:
@@ -400,4 +404,7 @@ class HeuristicDeviceMap(DeviceMap):
                 torch.where(detections[:,1] > detection_extents[:,2], 1,0) *   \
                 torch.where(detections[:,1] < detection_extents[:,1], 1,0)
         keep = keep.nonzero().squeeze()
+        
+        if len(keep.shape) == 0:
+            keep = []
         return keep

@@ -81,16 +81,22 @@ class HungarianIOUAssociator(Associator):
        
        if len(second) == 0:
             return torch.empty(0)
-       
+       elif len(second) == 1:
+           second = second.view(1,6)
+           
        if len(first) == 0:   
            return torch.zeros(len(second))-1
-       
+       elif len(first) == 1:
+           first = first.view(1,6)
+
+        
        # print("Priors:")
        # print(first)
        # print("Detections:")
        # print(second)
 
-
+        
+        
 
        # first and second are in state form - convert to space form
        first = hg.state_to_space(first.clone())
@@ -137,10 +143,15 @@ class HungarianIOUAssociator(Associator):
                matchings[i] = -1    
     
         # matchings currently contains object indexes - swap to obj_ids
-       for i in range(len(matchings)):
-           if matchings[i] != -1:
-               matchings[i] = obj_ids[matchings[i]]
-               
+       try:
+            for i in range(len(matchings)):
+               if matchings[i] != -1:
+                   matchings[i] = obj_ids[matchings[i]]
+       except:
+           print(type(obj_ids),type(matchings))
+           print("Error assigning obj_ids to matchings. len matchings: {}, len obj_ids: {}".format(matchings.shape,obj_ids.shape))
+           return torch.zeros(len(second))-1
+                   
        # print("Dist:")
        # print(dist)
        # print("Matches:")

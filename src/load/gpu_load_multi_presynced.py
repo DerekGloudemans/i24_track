@@ -116,7 +116,8 @@ class MCLoader():
         
         for dev in self.device_loaders:
             for loader in dev:
-                loader.__next__(timeout = 60)
+                loader.__next__(timeout = 300)
+        logger.info("Successfully got first frame from all cameras")
      
     @catch_critical()                          
     def _parse_device_mapping(self,mapping_file):
@@ -139,9 +140,9 @@ class MCLoader():
         
     @catch_critical()     
     def get_frames(self,tolerance = 1/60):
-        self.target_time = self.start_time + self.returned_counter * 1/self.Hz
+            self.target_time = self.start_time + self.returned_counter * 1/self.Hz
         
-        try:
+        # try:
             # accumulators
             frames = [[] for i in range(torch.cuda.device_count())]
             timestamps = []
@@ -153,7 +154,7 @@ class MCLoader():
                     if loader.item[1] >self.target_time + tolerance: # this frame is too far ahead, do not increment
                         frame = torch.zeros(3,1080,1920,device= torch.device("cuda:{}".format(dev_idx)))
                         ts = -np.inf
-                        logger.warning("Loader for sequence {} is too far ahead and did not increment frames. Possible dropped packet.".format(self.device_loader_cam_names[dev_idx][l_idx]))
+                        logger.warning("Loader for sequence {} is too far ahead (target time: {},    next frame timestamp: {}) and did not increment frames. Possible dropped packet.".format(self.device_loader_cam_names[dev_idx][l_idx],self.target_time,loader.item[1]))
                         
                     else:
                         ts = -1
@@ -178,8 +179,8 @@ class MCLoader():
             self.returned_counter += 1 
             return out,timestamps
     
-        except: # end of input
-            return None, None
+        # except: # end of input
+        #     return None, None
         
     @catch_critical()
     def get_start_time(self,cam_names,cam_sequences):
@@ -246,6 +247,7 @@ class GPUBackendFrameGetter:
         self.worker = ctx.Process(target=load_queue_continuous_vpf, args=(self.queue,directory,device,buffer_size,resize,start_time,Hz),daemon = True)
         self.worker.start()   
         
+        self.directory = directory        
 
     def __len__(self):
         """
@@ -280,7 +282,7 @@ class GPUBackendFrameGetter:
             ts = frame[1] 
             im = frame[0]
         except Exception as e:
-            logger.error("Got exception {}. None frame will be returned and tracking will shut down".format(e))
+            logger.error("Got timeout exception {} loading frames from {}. None frame will be returned and tracking will shut down".format(e,self.directory))
             im = None #torch.empty([6,1080,1920])
             ts = None
             
@@ -379,7 +381,7 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
                 # Obtain NV12 decoded surface from decoder;
                 #raw_surface = nvDec.DecodeSingleSurface(pkt)
                 if rawSurface.Empty():
-                    logger.debug("raw surace empty")
+                    logger.debug("raw surface empty")
                     break
     
                 # Convert to RGB interleaved;

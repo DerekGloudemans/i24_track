@@ -97,6 +97,7 @@ class TrackingProcess:
         
         # default hostname
         hostname = socket.gethostname()
+        self.hostname = hostname
         
         if socket.gethostname() == 'quadro-cerulean':    
             hostname = "videonode2"
@@ -168,7 +169,7 @@ class TrackingProcess:
         
         
         # initialize Homography object
-        self.hg = Curvilinear_Homography(params.homography_file,downsample = 2, fill_gaps = True) 
+        self.hg = Curvilinear_Homography(params.homography_file,downsample = 2, fill_gaps = False) 
         self.hg.polarity = 1
         
         if params.track:
@@ -180,6 +181,14 @@ class TrackingProcess:
             
             # initialize tracker
             self.tracker = get_Tracker(params.tracker)
+            
+            if params.trim_extents:
+                minx = torch.min(self.dmap.cam_extents[:,0]).item()
+                maxx = torch.max(self.dmap.cam_extents[:,1]).item()
+                print(minx,maxx)
+                self.tracker.fov = [minx,maxx]
+                # get max and min of all camera extents
+                # overwrite tracker FOV extents
             
             # add Associate function to each pipeline
             # for i in range(len(pipelines)):
@@ -219,8 +228,8 @@ class TrackingProcess:
         :param   next_target_time - float
         :return  None
         """
-
-        save_file = os.path.join(self.checkpoint_dir,"{}.cpkl".format(self.collection_overwrite))
+        base_name = self.hostname + "_" + self.collection_overwrite + ".cpkl"
+        save_file = os.path.join(self.checkpoint_dir,base_name)
         with open(save_file,"wb") as f:
             pickle.dump([self.max_ts,self.tstate,self.collection_overwrite],f)
         logger.debug("Checkpointed TrackState object, time:{}s".format(self.max_ts))
@@ -238,7 +247,8 @@ class TrackingProcess:
         :param   next_target_time - float
         :return  None
         """  
-        save_file = os.path.join(self.checkpoint_dir,"{}.cpkl".format(self.collection_overwrite))
+        base_name = self.hostname + "_" + self.collection_overwrite + ".cpkl"
+        save_file = os.path.join(self.checkpoint_dir,base_name)
         
         if os.path.exists(save_file):
             with open(save_file,"rb") as f:
@@ -341,6 +351,10 @@ class TrackingProcess:
                             #print([len(f) for f in frames])
                             #[print(f.shape,f.device,"||") for f in frames]
         
+                            if self.max_ts < -20:
+                                self.max_ts += 0.1
+                                logger.warning("Max ts is -inf, which likely means no frames are available. Resetting max_ts to 0.1s past previous max ({})s and loading next frame".format(self.max_ts))
+                                continue
                             #print(frames_processed,timestamps[0],target_time) # now we expect almost an exactly 30 fps framerate and exactly 30 fps target framerate
                             
                             if frames is None:
@@ -393,9 +407,7 @@ class TrackingProcess:
                             #detection_cam_names = [detection_cam_names[i] + ("_eb" if detections[i,5] == 1 else "_wb") for i in range(len(detection_cam_names))]
         
                             
-                            if True and pipeline_idx == 0:
-                                
-                                
+                            if True and pipeline_idx == 0 and len(detection_cam_names) > 0:
                                 keep = self.dmap.filter_by_extents(detections,detection_cam_names)
                                 detections = detections[keep,:]
                                 confs = confs[keep]
@@ -404,14 +416,17 @@ class TrackingProcess:
                                 detection_cam_names = [detection_cam_names[_] for _ in keep]
                               
                             # filter out any detections with a bad timestamp 
-                            keep = torch.where(detection_times > -10, 1, 0).nonzero().squeeze()
-                            detections = detections[keep,:]
-                            confs = confs[keep]
-                            classes = classes[keep]
-                            detection_times = detection_times[keep]
-                            detection_cam_names = [detection_cam_names[_] for _ in keep]
+                            if len(detection_times) > 0:
+                                keep = torch.where(detection_times > -10, 1, 0).nonzero().squeeze()
+                                detections = detections[keep,:]
+                                confs = confs[keep]
+                                classes = classes[keep]
+                                detection_times = detection_times[keep]
+                                detection_cam_names = [detection_cam_names[_] for _ in keep]
                                 
-                                
+                            if len(detections) == 1:
+                                detections = detections.view(-1,detections.shape[-1])
+                            
                             # Association
                             self.tm.split("Associate",SYNC = True)
                             if pipeline_idx == 0:
@@ -481,7 +496,8 @@ class TrackingProcess:
                             "run time":time.time() - start_time,
                             "scene time processed":max(timestamps) - self.start_ts,
                             "active objects":len(self.tstate),
-                            "total terminated objects":term_objects
+                            "total terminated objects":term_objects,
+                            "est_finish_time":min(est_finish,100000)
                             }
                         self.logger.info("Tracking Status Log",extra = metrics)
                         self.logger.info("Time Utilization: {}".format(self.tm),extra = self.tm.bins())
@@ -489,6 +505,11 @@ class TrackingProcess:
                     if self.params.checkpoint and frames_processed % 500 == 0:
                         self.checkpoint()
                
+                    if len(self.tstate) > self.params.kill_count:
+                        info = {"active objects":len(self.tstate)}
+                        self.logger.critical("Number of active objects {} has exceeded kill count {}. Raising sigusr handler".format(len(self.tstate),self.params.kill_count),extra = info)
+                        self.sigusr_handler(None,None)
+                        self.logger.debug("After sigusr in kill count block. This code probably shouldn't be reached")
                 
             # except KeyboardInterrupt:
                 

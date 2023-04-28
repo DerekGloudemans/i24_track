@@ -134,7 +134,7 @@ class TrackState():
             ids, states = self.kf.view(dt = None,with_direction = with_direction)
 
         if mode == "tensor":
-            return torch.tensor(ids), states
+            return torch.tensor(ids).view(-1), states.view(-1,states.shape[-1])
     
         else:
             state_dict = dict([(ids[i],states[i]) for i in range(len(ids))])

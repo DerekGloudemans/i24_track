@@ -541,12 +541,13 @@ class Curvilinear_Homography():
                 self.correspondence[cor_name] = cor
         
             # use other side if no homography defined
-            if "{}_{}".format(camera,"EB") not in self.correspondence.keys():
-                if "{}_{}".format(camera,"WB") in self.correspondence.keys():
-                    self.correspondence["{}_{}".format(camera,"EB")] = self.correspondence["{}_{}".format(camera,"WB")]
-            if "{}_{}".format(camera,"WB") not in self.correspondence.keys():
-                if "{}_{}".format(camera,"EB") in self.correspondence.keys():
-                    self.correspondence["{}_{}".format(camera,"WB")] = self.correspondence["{}_{}".format(camera,"EB")]
+            if True:
+                if "{}_{}".format(camera,"EB") not in self.correspondence.keys():
+                    if "{}_{}".format(camera,"WB") in self.correspondence.keys():
+                        self.correspondence["{}_{}".format(camera,"EB")] = self.correspondence["{}_{}".format(camera,"WB")]
+                if "{}_{}".format(camera,"WB") not in self.correspondence.keys():
+                    if "{}_{}".format(camera,"EB") in self.correspondence.keys():
+                        self.correspondence["{}_{}".format(camera,"WB")] = self.correspondence["{}_{}".format(camera,"EB")]
     
     def _fit_z_vp(self,cor,im_data,direction):
         
@@ -895,10 +896,11 @@ class Curvilinear_Homography():
         plt.plot(med_spl_u)
         plt.plot(np.array(med_spl_u)[np.argsort(med_spl_u)])
         
+        smoothing_dist = 100
         
         s = 10.0
         min_dist = 0
-        while min_dist < 100:
+        while min_dist < smoothing_dist:
             final_tck,final_u = interpolate.splprep(med_data.astype(float), s=s, u=med_spl_u)
             knots = final_tck[0]
             min_dist = np.min(np.abs(knots[4:] - knots[:-4]))
@@ -915,7 +917,7 @@ class Curvilinear_Homography():
         ulist = []
         xlist = []
         ylist = []
-        for u in range(int(min(final_u)),int(max(final_u)), 100):
+        for u in range(int(min(final_u)),int(max(final_u)), smoothing_dist):
             ulist.append(u)
             x,y = interpolate.splev(u,final_tck)
             xlist.append(x)
@@ -1194,7 +1196,167 @@ class Curvilinear_Homography():
                 except:
                     pass
         
+    def _generate_lane_offset(self,space_dir):
+        """
+        For each lane in d1,d2,d3,d4,yellow for each side, compute mean and standard deviation
+        """
     
+    
+        # 1. assemble all lane marking coordinates across all correspondences
+
+        line_pts = {}
+        
+        for direction in ["eb","wb"]:
+            ### State space, do once
+            
+
+            
+            # 1. Assemble all points labeled along a yellow line in either direction
+            for file in os.listdir(space_dir):
+                if direction.lower() not in file or ("yel" not in file and "d1" not in file and "d2" not in file and "d3" not in file and "d4" not in file):
+                    continue
+                
+                # if "P40C02" in file or "P31C02" in file or "P25C02" in file:
+                #     continue
+                
+                ae_x = []
+                ae_y = []
+                ae_id = []
+                # load all points
+                dataframe = pd.read_csv(os.path.join(space_dir,file))
+                try:
+                    dataframe = dataframe[dataframe['point_pos'].notnull()]
+                    attribute_name = file.split(".csv")[0]
+                    feature_idx = dataframe["point_id"].tolist()
+                    st_id = [attribute_name + "_" + item for item in feature_idx]
+                    
+                    st_x = dataframe["st_x"].tolist()
+                    st_y = dataframe["st_y"].tolist()
+                
+                    ae_x  += st_x
+                    ae_y  += st_y
+                    ae_id += st_id
+                except:
+                    dataframe = dataframe[dataframe['side'].notnull()]
+                    attribute_name = file.split(".csv")[0]
+                    feature_idx = dataframe["id"].tolist()
+                    side        = dataframe["side"].tolist()
+                    st_id = [attribute_name + str(side[i]) + "_" + str(feature_idx[i]) for i in range(len(feature_idx))]
+                    
+                    st_x = dataframe["st_x"].tolist()
+                    st_y = dataframe["st_y"].tolist()
+                
+                    ae_x  += st_x
+                    ae_y  += st_y
+                    ae_id += st_id
+            
+                try:
+                    line_pts[attribute_name][0].append(ae_x)
+                    line_pts[attribute_name][1].append(ae_y)
+                except KeyError:
+                    line_pts[attribute_name] = [ae_x,ae_y]
+                    
+                
+
+            
+    
+        # 2. for each lane, convert all points to roadway coordinates
+        
+        roadway_data = {}
+        for key in line_pts.keys():
+            data = line_pts[key]
+            space_data = torch.tensor([data[0],data[1],torch.zeros(len(data[0]))]).permute(1,0).unsqueeze(1)
+            
+            road_data = self.space_to_state(space_data)
+            order = torch.argsort(road_data[:,0])
+            
+            roadway_data[key] = road_data[order,:2]
+            
+        # 3. Get mean and stddev for line
+        for key in roadway_data.keys():
+            mean = torch.mean(roadway_data[key][:,1])
+            std =  torch.std(roadway_data[key][:,1])
+            print("Stats for {}: mean {}, stddev {}".format(key,mean,std))
+        
+        
+        import matplotlib.pyplot as plt
+        plt.figure()
+        leg= []
+        # 5. Plot
+        
+        for key in roadway_data.keys():
+            plt.plot(roadway_data[key][:,0],roadway_data[key][:,1])
+            leg.append(key)
+        plt.legend(leg)
+        
+        
+    def _convert_landmarks(self,space_dir):
+        
+         output_path = "landmarks.json"
+        
+         file = os.path.join(space_dir,"landmarks.csv")
+        
+         # load relevant data
+         dataframe = pd.read_csv(os.path.join(space_dir,file))
+         st_x = dataframe["X"].tolist()
+         st_y = dataframe["Y"].tolist()
+         st_type = dataframe["type"].tolist()
+         st_location = dataframe["location"].tolist()
+
+         # convert all points into roadway coords
+
+         space_data = torch.tensor([st_x,st_y,torch.zeros(len(st_x))]).permute(1,0).unsqueeze(1)
+         road_data = self.space_to_state(space_data)[:,:2]
+         names = [st_type[i] + "_" + st_location[i] for i in range(len(st_type))]
+         
+         file = os.path.join(space_dir,"poles.csv")
+        
+         # load relevant data
+         dataframe = pd.read_csv(os.path.join(space_dir,file))
+         st_x = dataframe["X"].tolist()
+         st_y = dataframe["Y"].tolist()
+         pole = dataframe["pole-number"].tolist()
+         
+         space_data_pole = torch.tensor([st_x,st_y,torch.zeros(len(st_x))]).permute(1,0).unsqueeze(1)
+         road_data_pole = self.space_to_state(space_data_pole)[:,:2]
+         
+         
+         
+         
+         underpasses = {}
+         overpasses = {}
+         poles = {}
+         
+         for p_idx in range(len(pole)):
+             p_name = pole[p_idx]
+             poles[p_name] = [road_data_pole[p_idx,0].item(), road_data_pole[p_idx,1].item()]
+         
+         for n_idx in range(len(names)):
+             name = names[n_idx]
+             
+             if "under" in name:
+                 try:
+                     underpasses[name.split("_")[2]].append(road_data[n_idx,0].item())
+                 except:
+                     underpasses[name.split("_")[2]] = [road_data[n_idx,0].item()]
+         
+             if "over" in name:
+                 try:
+                     overpasses[name.split("_")[2]].append(road_data[n_idx,0].item())
+                 except:
+                     overpasses[name.split("_")[2]] = [road_data[n_idx,0].item()]   
+         
+         pass
+         # store as JSON of points
+         
+         landmarks = {"overpass":overpasses,
+                      "underpass":underpasses,
+                      "poles":poles
+                      }
+         
+         with open(output_path,"w") as f:    
+             json.dump(landmarks,f, sort_keys = True)
+         
     
     
     #%% Conversion Functions
@@ -1480,9 +1642,17 @@ class Curvilinear_Homography():
         """
         
         # 1. get x-y coordinate of closest point along spline (i.e. v = 0)
+        
+        #### WARNING, this is untested!!!
+        points = points.view(-1,points.shape[-1])
+        
         d = points.shape[0]
         
-        points[:,5] *= self.polarity
+        try:
+            points[:,5] *= self.polarity
+        except:
+            print("Error in state_to_space, points is of dimension: {}".format(points.shape))
+            return torch.empty([0,8,3], device = points.device)
         
         if d == 0:
             return torch.empty([0,8,3], device = points.device)
@@ -1640,7 +1810,7 @@ class Curvilinear_Homography():
         height = box_height / template_ratio
         return height
 
-
+    
          
     
     #%% Plotting Functions
@@ -1798,7 +1968,7 @@ class Curvilinear_Homography():
                 
                 proj_space_pts = self.space_to_im(space_pts,name = namel).squeeze(1)
                 error = torch.sqrt(((proj_space_pts - im_pts)**2).sum(dim = 1)).mean()
-                #print("Mean error for {}: {}px".format(name,error))
+                print("Mean error for {}: {}px".format(name,error))
                 running_error.append(error)   
             end = time.time() - start
             print("Average Pixel Reprojection Error across all homographies: {}px in {} sec\n".format(sum(running_error)/len(running_error),end))
@@ -1898,7 +2068,7 @@ class Curvilinear_Homography():
         
         if False: 
             #plot some boxes
-            for pole in range(8,41):
+            for pole in [26,38]:
                 for camera in range(1,7):
                     try:
                         # pole = 40
@@ -1911,7 +2081,7 @@ class Curvilinear_Homography():
                         plot_boxes_state = []
                         labels = []
                         for i in range(len(all_cam_names)):
-                            if all_cam_names[i] == plot_cam:
+                            if plot_cam in all_cam_names[i]:
                                 plot_boxes.append(repro_state_boxes[i])
                                 plot_boxes_state.append(boxes[i])     
                                 labels.append(boxes[i,5])
@@ -1938,15 +2108,17 @@ class Curvilinear_Homography():
 if __name__ == "__main__":
     #im_dir = "/home/derek/Documents/i24/i24_homography/data_real"
     #space_dir = "/home/derek/Documents/i24/i24_homography/aerial/to_P24"
-    save_file =  "P08_P40.cpkl"
+    save_file =  "P01_P40b.cpkl"
 
     im_dir = "/home/derek/Data/MOTION_HOMOGRAPHY_FINAL"
     space_dir = "/home/derek/Documents/i24/i24_homography/aerial/all_poles_aerial_labels"
 
     hg = Curvilinear_Homography(save_file = save_file,space_dir = space_dir, im_dir = im_dir)
-    hg.test_transformation(im_dir)
-    #hg.fill_gaps()
-    #hg._generate_extents_file(im_dir)
-    #hg._generate_mask_images(im_dir)
     
-    hg._generate_extents_file(im_dir,mode = "", output_path = "cam_extents_polygon.json")
+    hg._convert_landmarks(space_dir)
+    hg.test_transformation(im_dir)
+    #hg._generate_extents_file(im_dir)
+    hg._generate_mask_images(im_dir)
+    #hg._generate_extents_file(im_dir,mode = "", output_path = "cam_extents_polygon.json")
+    #hg._generate_lane_offset(space_dir)
+    #hg._fit_MM_offset(space_dir)
