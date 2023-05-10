@@ -60,8 +60,8 @@ class TrackState():
                 kf_params = pickle.load(f)
         
         kf_params["R"] = kf_params["R"].diag().diag()
-        kf_params["R"][0,0] = 25
-        kf_params["R"][1,1] = 3.5
+        kf_params["R"][0,0] = 10
+        kf_params["R"][1,1] = 2.5
         kf_params["R"][2,2] *= 2.25**2
         kf_params["R"][3,3] *= 2.25**2
         kf_params["R"][4,4] *= 1.5**2

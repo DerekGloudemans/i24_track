@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Created on Wed Oct 12 09:58:31 2022
-
 @author: derek
 """
 
@@ -20,6 +18,7 @@ import re
 import copy
 import sys
 import json
+import matplotlib.pyplot as plt
 
 from scipy import interpolate
 
@@ -110,7 +109,7 @@ class Curvilinear_Homography():
         if save_file is not None and os.path.exists(save_file):
             with open(save_file,"rb") as f:
                 # everything in correspondence is pickleable without object definitions to allow compatibility after class definitions change
-                self.correspondence,self.median_tck,self.median_u,self.guess_tck,self.guess_tck2,self.MM_offset = pickle.load(f)
+                self.correspondence,self.median_tck,self.median_u,self.guess_tck,self.guess_tck2,self.MM_offset,self.all_splines,self.yellow_offsets = pickle.load(f)
             
             # reload  parameters of curvilinear axis spline
             # rather than the spline itself for better pickle reloading compatibility
@@ -120,18 +119,21 @@ class Curvilinear_Homography():
             raise IOError("Either save_file or space_dir and im_dir must not be None")
         
         else:
+            #  fit the axis spline once and collect extents
             self.generate(space_dir,im_dir)
             self.median_tck = None
             self.median_u = None
             self.guess_tck = None
             self.guess_tck2 = None
+            self.all_splines = None
+            self.yellow_offsets = None
             self.save(save_file)
-            #  fit the axis spline once and collect extents
-            self._fit_spline(space_dir)
             
+        if False or self.median_tck is None:
+            self._fit_spline(space_dir)
             self.save(save_file)
-    
-
+        self.save_file = save_file
+        #self._fit_spline(space_dir)
 
         # object class info doesn't really belong in homography but it's unclear
         # where else it should go, and this avoids having to pass it around 
@@ -175,7 +177,7 @@ class Curvilinear_Homography():
         
     def save(self,save_file):
         with open(save_file,"wb") as f:
-            pickle.dump([self.correspondence,self.median_tck,self.median_u,self.guess_tck,self.guess_tck2,self.MM_offset],f)
+            pickle.dump([self.correspondence,self.median_tck,self.median_u,self.guess_tck,self.guess_tck2,self.MM_offset,self.all_splines,self.yellow_offsets],f)
         
         
     def generate(self,
@@ -184,7 +186,8 @@ class Curvilinear_Homography():
                  downsample     = 1,
                  max_proj_error = 0.25,
                  scale_factor   = 3,
-                 ADD_PROJ       = False):
+                 ADD_PROJ       = False,
+                 USE_SPLINES    = False):
         """
         Loads all available camera homographies from the specified paths.
         after running, self.correspondence is a dict with one key for each <camera>_<direction>
@@ -295,62 +298,65 @@ class Curvilinear_Homography():
             
             min_matches = torch.min(dist, dim = 1)[1]
             
-            if ADD_PROJ:
+            # if ADD_PROJ:
                 
-                try:
-                    with open("ae_cache_{}.cpkl".format(direction),"rb") as f:
-                        additional_points = pickle.load(f)
-                except:
-                    # For each d2 lane marker, find the closest d3 lane marker
-                    proj_lines = []
+            #     try:
+            #         with open("ae_cache_{}.cpkl".format(direction),"rb") as f:
+            #             additional_points = pickle.load(f)
+            #     except:
+            #         # For each d2 lane marker, find the closest d3 lane marker
+            #         proj_lines = []
                     
-                    for i in range(len(min_matches)):
-                        j = min_matches[i]
-                        pline = [d3_values[j],d2_values[i],d3_ids[j],d2_ids[i]]
-                        proj_lines.append(pline)
+            #         for i in range(len(min_matches)):
+            #             j = min_matches[i]
+            #             pline = [d3_values[j],d2_values[i],d3_ids[j],d2_ids[i]]
+            #             proj_lines.append(pline)
                     
                     
                     
-                    # compute the yellow line spline in state plane coordinates
+            #         # compute the yellow line spline in state plane coordinates
                     
-                    ae_data = np.stack([np.array(ae_spl_x),np.array(ae_spl_y)])
-                    ae_data = ae_data[:,np.argsort(ae_data[1,:])]
+            #         ae_data = np.stack([np.array(ae_spl_x),np.array(ae_spl_y)])
+            #         ae_data = ae_data[:,np.argsort(ae_data[1,:])]
                     
-                    ae_tck, ae_u = interpolate.splprep(ae_data, s=0, per=False)
+            #         ae_tck, ae_u = interpolate.splprep(ae_data, s=0, per=False)
                     
-                    span_dist = np.sqrt((ae_spl_x[0] - ae_spl_x[-1])**2 + (ae_spl_y[0] - ae_spl_y[-1])**2)
-                    ae_x_prime, ae_y_prime = interpolate.splev(np.linspace(0, 1, int(span_dist*scale_factor)), ae_tck)
+            #         span_dist = np.sqrt((ae_spl_x[0] - ae_spl_x[-1])**2 + (ae_spl_y[0] - ae_spl_y[-1])**2)
+            #         ae_x_prime, ae_y_prime = interpolate.splev(np.linspace(0, 1, int(span_dist*scale_factor)), ae_tck)
                 
-                    additional_points = []
-                    # for each d2 lane marker, find the intersection between the d2-d3 line and the yellow line spline
-                    for p_idx, proj_line in enumerate(proj_lines):
-                        print("On proj line {} of {}".format(p_idx,len(proj_lines)))
-                        min_dist = np.inf
-                        min_point = None
-                        line = [proj_line[0][0],proj_line[0][1],proj_line[1][0],proj_line[1][1]]
-                        for i in range(len(ae_x_prime)):
-                            point = [ae_x_prime[i],ae_y_prime[i]]
+            #         additional_points = []
+            #         # for each d2 lane marker, find the intersection between the d2-d3 line and the yellow line spline
+            #         for p_idx, proj_line in enumerate(proj_lines):
+            #             print("On proj line {} of {}".format(p_idx,len(proj_lines)))
+            #             min_dist = np.inf
+            #             min_point = None
+            #             line = [proj_line[0][0],proj_line[0][1],proj_line[1][0],proj_line[1][1]]
+            #             for i in range(len(ae_x_prime)):
+            #                 point = [ae_x_prime[i],ae_y_prime[i]]
                             
-                            dist = line_to_point(line, point)
-                            if dist < min_dist:
-                                min_dist = dist
-                                min_point = point
-                        if min_dist > max_proj_error:
-                            print("Issue")
-                        else:
-                            name = "{}_{}".format(proj_line[2],proj_line[3])
-                            min_point.append(name)
-                            additional_points.append(min_point)
+            #                 dist = line_to_point(line, point)
+            #                 if dist < min_dist:
+            #                     min_dist = dist
+            #                     min_point = point
+            #             if min_dist > max_proj_error:
+            #                 print("Issue")
+            #             else:
+            #                 name = "{}_{}".format(proj_line[2],proj_line[3])
+            #                 min_point.append(name)
+            #                 additional_points.append(min_point)
                             
-                    with open("ae_cache_{}.cpkl".format(direction),"wb") as f:
-                        pickle.dump(additional_points,f)
+            #         with open("ae_cache_{}.cpkl".format(direction),"wb") as f:
+            #             pickle.dump(additional_points,f)
                         
                 
-                for point in additional_points:
-                    ae_x.append(point[0])
-                    ae_y.append(point[1])
-                    ae_id.append(point[2])
+            #     for point in additional_points:
+            #         ae_x.append(point[0])
+            #         ae_y.append(point[1])
+            #         ae_id.append(point[2])
     
+        ### Shift aerial points using splines
+        if USE_SPLINES: 
+            ae_x,ae_y,ae_id = self.shift_aerial_points(ae_x,ae_y,ae_id)
     
         # get all cameras
         cam_data_paths = glob.glob(os.path.join(im_dir,"*.cpkl"))
@@ -372,7 +378,10 @@ class Curvilinear_Homography():
                 
             for direction in ["EB","WB"]:
                 # get all non-curve matching points
-                point_data = im_data[direction]["points"]
+                try:
+                    point_data = im_data[direction]["points"]
+                except KeyError:
+                    continue
                 filtered = filter(lambda x: x[2].split("_")[1] not in ["yeli","yelo","whli","whlo"],point_data)
                 im_x  = []
                 im_y  = []
@@ -475,7 +484,10 @@ class Curvilinear_Homography():
                         im_x.append(point[0])
                         im_y.append(point[1])
                         im_id.append(point[2])
+                    
                         
+                
+                    
                 ### Joint
                 
                 # assemble ordered list of all points visible in both image and space
@@ -548,6 +560,254 @@ class Curvilinear_Homography():
                 if "{}_{}".format(camera,"WB") not in self.correspondence.keys():
                     if "{}_{}".format(camera,"EB") in self.correspondence.keys():
                         self.correspondence["{}_{}".format(camera,"WB")] = self.correspondence["{}_{}".format(camera,"EB")]
+    
+    def shift_aerial_points(self,ae_x,ae_y,ae_id):
+        """
+        Moves each aerial imagery point such that it is within 1/2 lane width distance of the center-of-line spline.
+        This is done to account for labeling noise and remove jump discontinuities in aerial image points.
+        
+        
+        1. Sample each center line spline at fine (0.02 ft intervals)
+        2. Group all points into sets (i.e. corresponding to the same tick)
+        3. Find the midpoint for each tick
+        4. Find the closest sampled point and compute the offset
+        5. Shift each point by that amount
+        - Ignore yellow lines, only compute for lanes 1-3 ticks
+        
+        """
+    
+        new_ae_x = []
+        new_ae_y = []
+        new_ae_id = []
+        
+        #1. Sample each spline
+        sampled_splines = {}
+        for key in self.all_splines.keys():
+            if "center" in key:
+                spl = self.all_splines[key]
+                
+                umin,umax = np.min(spl[1]),np.max(spl[1])
+                diff = umax-umin
+                # 50 means 50 samples per foot
+                u_range = np.linspace(umin,umax,int(diff*50))
+            
+                sample_x,sample_y = interpolate.splev(u_range,spl[0])
+                
+                data = np.stack([sample_x,sample_y])
+                sampled_splines[key] = data
+        
+        #2. Group all points
+        points = {}
+        for i in range(len(ae_id)):
+            base_id = ae_id[i].split("_")[0] + ae_id[i].split("_")[1] + ae_id[i].split("_")[2]
+            
+            try:
+                points[base_id].append([ae_x[i],ae_y[i],ae_id[i]])
+            except:
+                points[base_id] = [[ae_x[i],ae_y[i],ae_id[i]]]
+        
+        ## Iterate through all sets of points
+        for key in points.keys():
+            if "d1" not in key and "d2" not in key and "d3" not in key or len(points[key]) != 4:
+                pt = points[key]
+                for i in range(len(pt)):
+                    new_ae_x.append(pt[i][0])
+                    new_ae_y.append(pt[i][1])
+                    new_ae_id.append(pt[i][2])
+                continue
+            
+            
+            #3. get midpoint
+            x_list  = [points[key][i][0] for i in range(4)]
+            y_list  = [points[key][i][1] for i in range(4)]
+            id_list = [points[key][i][2] for i in range(4)]
+
+                
+            x_mean = sum(x_list)/4.0
+            y_mean = sum(y_list)/4.0
+            
+            #find closest point on spline
+            
+            # match to spline by direction and dash index
+            direction = id_list[0].split("_")[0].upper()
+            dash      = id_list[0].split("_")[1]
+            spline_key = "{}_{}_center".format(direction,dash)
+            
+            spl = sampled_splines[spline_key]
+            
+            point = np.array([[x_mean],[y_mean]]).repeat(spl.shape[1],axis = 1)
+            dist = ((spl - point)**2).sum(axis = 0)
+            min_idx = np.argmin(dist)
+            
+            min_spl_x, min_spl_y = spl[0,min_idx],spl[1,min_idx]
+            
+            x_disp = min_spl_x - x_mean
+            y_disp = min_spl_y - y_mean
+            
+            # 5. Shift points so that center of dash lies on spline
+            pt = points[key]
+            for i in range(4):
+                new_ae_x.append(pt[i][0]+x_disp)
+                new_ae_y.append(pt[i][1]+y_disp)
+                new_ae_id.append(pt[i][2])
+        
+        print(len(new_ae_x),len(ae_x))
+        
+        return new_ae_x,new_ae_y,new_ae_id
+        
+    
+    
+    def shift_aerial_points2(self,ae_x,ae_y,ae_id):
+        """
+        So, as it turns out, it is much easier to smooth a spline in roadway coordinates than in state plane coordinates. 
+        We want to use the smoothed splines to shift points, so we adopt the following logic
+        1. For each spline (inside and outside, y-d3)
+        2. Get all points and sort by increasing x (state plane)
+        3. convert to roadway coordinates (spline and points)
+        4. Smooth spline
+        5. For each point, find closest spline point 
+        5. Convert to state plane
+        6. Reassign each point the smoothed value
+        
+        7. At the end, output smoothed values
+        
+        This is written is such a way that we can call it in fit_spline as:
+            
+            if self.median_tck is not None:
+                ae_x,ae_y,ae_id = shift_aerial_points2(ae_x,ae_y_ae_id)
+                
+                ... fit splines
+                
+        and then simply call self.fit_spline() twice
+         
+        NOTE - we smooth all points according to the inside spline fit, ignoring the outside spline fit
+      
+        
+        """
+        spline_sample_frequency = 1
+    
+        new_ae_x = []
+        new_ae_y = []
+        new_ae_id = []
+        
+        # get key from ae_id
+        indicator = ae_id[0].split("_")[1]
+        direction = ae_id[0].split("_")[0].upper()
+        
+        
+        if "yel" in indicator:
+            indicator = "yel"
+            
+        for side in ["i","o"]:
+        
+            #1. Sample appropriate spline
+            for key in self.all_splines.keys():
+                if indicator in key and direction in key and side in key:
+                    
+                    spl = self.all_splines[key]
+                    
+                    umin,umax = np.min(spl[1]),np.max(spl[1])
+                    diff = umax-umin
+                    # 50 means 50 samples per foot
+                    u_range = np.linspace(umin,umax,int(diff*spline_sample_frequency))
+                
+                    sample_x,sample_y = interpolate.splev(u_range,spl[0])
+                    
+                    spline_data = np.stack([sample_x,sample_y]).transpose(1,0)
+                    spline_data = torch.from_numpy(spline_data)
+                    zeros = torch.zeros([spline_data.shape[0],1])
+                    spline_data = torch.cat([spline_data,zeros],dim = 1)
+                    break
+            
+            try: 
+                spline_data
+            except: 
+                print("error getting correct spline key for {} {} {}".format(indicator,direction,side))
+                return ae_x,ae_y,ae_id
+            
+            
+        
+            #2. Get the subset of relevant points
+            include_idx = []
+            include_id = []
+            include_x = []
+            include_y = []
+            
+            side_list = ["c","d"] if ((side == "i" and direction == "WB") or (side == "o" and direction == "EB" )) else ["a","b"]
+            side_list.append(side)
+            
+            for i in range(len(ae_id)):
+                id = ae_id[i] 
+                if direction.lower() in id and indicator in id and (id[-1] in side_list or indicator == "yel"):
+                
+                    include_idx.append(i)
+                    include_id.append(id)
+                    include_x.append(ae_x[i])
+                    include_y.append(ae_y[i])
+    
+        
+            # sort points according to increasing X
+            order = np.array(include_x).argsort()
+            include_idx = [include_idx[o] for o in order]
+            include_id = [include_id[o] for o in order]
+            include_x  = [include_x[o] for o in order]
+            include_y  = [include_y[o] for o in order]
+            
+            
+        
+            # convert points to roadway coordinates
+            points = torch.stack([torch.tensor(include_x),torch.tensor(include_y),torch.zeros(len(include_x))]).transpose(1,0).unsqueeze(1)
+            points_rc = self.space_to_state(points)
+        
+            # convert spline sample points to roadway coordiantes
+            spline_data_rc = self.space_to_state(spline_data.unsqueeze(1))
+            
+            # Smooth spline points
+            width = 1200*spline_sample_frequency + 5
+            
+            extend1 = torch.ones((width-1)//2) * spline_data_rc[0,1]
+            extend2 = torch.ones((width-1)//2) * spline_data_rc[-1,1]
+            splrc_extended = torch.cat([extend1,spline_data_rc[:,1],extend2])
+
+            smoother = np.hamming(width)
+            smoother = smoother/ sum(smoother)
+            splrc = np.convolve(splrc_extended,smoother,mode = "valid")
+            spline_data_rc[:,1] = torch.from_numpy(splrc)
+        
+            # 5. for each point, find closest smoothed spline point
+            
+            # dist will be [m,n], where n = number of points an n = number of sample points        
+            m = points_rc.shape[0] 
+            n = spline_data_rc.shape[0]
+            
+            # points_rc is of shape [m,6]
+            # splrc is of shape [n,6]
+            
+            points_exp = points_rc.unsqueeze(1).expand(m,n,6)[:,:,:2]
+            splrc_exp  = spline_data_rc.unsqueeze(0).expand(m,n,6)[:,:,:2]
+            
+            dist = ((points_exp - splrc_exp)**2).sum(dim = -1).sqrt()
+            
+            min_dist,min_idx = torch.min(dist,dim = 1) # of size m
+            
+            points_rc[:,:2] = spline_data_rc[min_idx][:,:2]
+            
+            # 6. convert set of selected spline points back to state plane coordinates
+            points_new = self.state_to_space(points_rc)[:,0,:2]
+            
+            # 7. Parse resulting points
+            for p_idx,point in enumerate(points_new):
+                new_ae_x.append(points_new[p_idx,0])
+                new_ae_y.append(points_new[p_idx,1])
+                new_ae_id.append(include_id[p_idx])
+        
+        
+        
+        
+        return new_ae_x,new_ae_y,new_ae_id
+        
+    
+    
     
     def _fit_z_vp(self,cor,im_data,direction):
         
@@ -662,7 +922,499 @@ class Curvilinear_Homography():
         
         #print("Best Error: {}".format(best_error))
         
-    def _fit_spline(self,space_dir,use_MM_offset = True):
+    def _fit_spline(self,space_dir,use_MM_offset = False):
+        """
+        Spline fitting is done by:
+            1. Assemble all points labeled along a yellow line in either direction
+            2. Fit a spline to each side of each line
+            3. Sample each spline at fine intervals
+            4. Use finite difference method to determine the distance along the spline for each fit point
+            5. Refit the splines, this time parameterizing the spline by these distances (u parameter in scipy.splprep)
+            5b. For each line, sample and define the set of points midway between
+            5c. For each line, define a separate spline fit to these points that defines the position of that lane as a function of x (along roadway)
+            6. Sample each yellow-line spline at fine intervals
+            7. Move along one spline and at each point, find the closest point on each other spline
+            8. Define a point on the median/ midpoint axis as the average on these 4 splines
+            9. Use the set of median points to define a new spline
+            10. Use the finite difference method to reparameterize this spline according to distance along it
+            11. Optionally, compute a median spline distance offset from mile markers
+            12. Optionally, recompute the same spline, this time accounting for the MM offset
+            
+        
+            
+            space_dir - str - path to directory with csv files of attributes labeled in space coordinates
+            use_MM_offset - bool - if True, offset according to I-24 highway mile markers
+        """
+        
+        print("Fitting median spline..")
+        
+        samples_per_foot = 12
+        splines = {}
+       
+        # First, load all annotations
+        for direction in ["EB","WB"]:
+            for line_side in ["i","o"]:
+                ### State space, do once
+                
+                ae_x = []
+                ae_y = []
+                ae_id = []
+                
+                # 1. Assemble all points labeled along a yellow line in either direction
+                for file in os.listdir(space_dir):
+                    if direction.lower() not in file:
+                        continue
+                    
+                
+                    
+                    # load all points
+                    dataframe = pd.read_csv(os.path.join(space_dir,file))
+                    try:
+                        dataframe = dataframe[dataframe['point_pos'].notnull()]
+                        attribute_name = file.split(".csv")[0]
+                        feature_idx = dataframe["point_id"].tolist()
+                        st_id = [attribute_name + "_" + item for item in feature_idx]
+                        
+                        st_x = dataframe["st_x"].tolist()
+                        st_y = dataframe["st_y"].tolist()
+                    
+                        ae_x  += st_x
+                        ae_y  += st_y
+                        ae_id += st_id
+                    except:
+                        dataframe = dataframe[dataframe['side'].notnull()]
+                        attribute_name = file.split(".csv")[0]
+                        feature_idx = dataframe["id"].tolist()
+                        side        = dataframe["side"].tolist()
+                        st_id = [attribute_name + str(side[i]) + "_" + str(feature_idx[i]) for i in range(len(feature_idx))]
+                        
+                        st_x = dataframe["st_x"].tolist()
+                        st_y = dataframe["st_y"].tolist()
+                    
+                        ae_x  += st_x
+                        ae_y  += st_y
+                        ae_id += st_id
+                
+                
+                for line in ["yel{}".format(line_side), "d1{}".format(line_side),"d2{}".format(line_side),"d3{}".format(line_side)]:
+                    print("On line {} {}".format(line,direction))
+                    ae_spl_x = []
+                    ae_spl_y = []
+                    ae_spl_u = []  # u parameterizes distance along spline 
+                    ae_spl_id = []                
+                    
+                    letter_to_side = {"a":"i",
+                                      "b":"i",
+                                      "c":"o",
+                                      "d":"o"
+                                      }
+                    
+                    for i in range(len(ae_x)):
+                        try:
+                            if line in ae_id[i] or ( len(ae_id[i].split("_")) == 4  and line == ae_id[i].split("_")[1] + letter_to_side[ae_id[i].split("_")[3]]):
+                            #if "yel{}".format(line_side) in ae_id[i]:
+                                ae_spl_x.append(ae_x[i])
+                                ae_spl_y.append(ae_y[i])
+                                ae_spl_id.append(ae_id[i])
+                        except KeyError:
+                            pass
+        
+                    # if possible, use spline to smooth points
+                    # if self.median_tck is not None:
+                    #     ae_spl_x,ae_spl_y,ae_spl_id = self.shift_aerial_points2( ae_spl_x,ae_spl_y,ae_spl_id)
+        
+                    # 2. Fit a spline to each of EB, WB inside and outside
+                     
+                    # find a sensible smoothness parameter
+                    
+                    # compute the yellow line spline in state plane coordinates (sort points by y value since road is mostly north-south)
+                    ae_data = np.stack([np.array(ae_spl_x),np.array(ae_spl_y)])
+                    ae_data,idx = np.unique(ae_data,axis = 1,return_index = True)
+                    order = np.argsort(ae_data[0,:])
+                    ae_data2 = ae_data[:,order]#[::-1]]
+                    order2 = np.argsort(ae_data[0,:])
+                    ae_data = ae_data2.copy()
+                    # 3. Sample the spline at fine intervals
+                    # get spline and sample points on spline
+                    w = np.ones(ae_data.shape[1])
+                    
+                    ae_spl_x  = [ae_spl_x[i]  for i in idx]
+                    ae_spl_y  = [ae_spl_y[i]  for i in idx]
+                    ae_spl_id = [ae_spl_id[i] for i in idx]
+                    # for dim in [0,1]:
+                    #     width = 13
+                    #     extend1 = torch.ones((width-1)//2) * ae_data[dim,0]
+                    #     extend2 = torch.ones((width-1)//2) * ae_data[dim,-1]
+                    #     ys_extended = torch.cat([extend1,torch.from_numpy(ae_data[dim,:]),extend2])
+                
+                    #     smoother = np.hamming(width)
+                    #     smoother = smoother/ sum(smoother)
+                    #     ys = np.convolve(ys_extended,smoother,mode = "valid")
+                    #     ae_data[dim,:] = ys
+                    
+                    knot_spacing = 0
+                    s0 = 0.1
+                    try:
+                        ae_tck, ae_u = interpolate.splprep(ae_data.astype(float), s=s0, w = w, per=False) 
+                    except ValueError as e:
+                        print(e)
+                   
+                    span_dist = np.sqrt((ae_spl_x[0] - ae_spl_x[-1])**2 + (ae_spl_y[0] - ae_spl_y[-1])**2)
+                    ae_x_prime, ae_y_prime = interpolate.splev(np.linspace(0, 1, int(span_dist*samples_per_foot)), ae_tck)
+
+                    # TEMP
+                    # plt.plot(ae_data[0,:],ae_data[1,:], "o-")
+                    # legend.append(direction + "_" + line_side)
+        
+                    # 4. Use finite difference method to determine the distance along the spline for each fit point
+                    fd_dist = np.concatenate(  (np.array([0]),  ((ae_x_prime[1:] - ae_x_prime[:-1])**2 + (ae_y_prime[1:] - ae_y_prime[:-1])**2)**0.5),axis = 0) # by convention fd_dist[0] will be 0, so fd_dist[i] = sum(int_dist[0:i])
+                    integral_dist = np.cumsum(fd_dist)
+                    
+                    # for each fit point, find closest point on spline, and assign it the corresponding integral distance
+                    for p_idx in range(len(ae_spl_x)):
+                        # I think these should instead reference ae_data because that one has been sorted
+                        #px = ae_spl_x[p_idx]
+                        #py = ae_spl_y[p_idx]
+                        px = ae_data[0,p_idx]
+                        py = ae_data[1,p_idx]
+                        
+                        dist = ((ae_x_prime - px)**2 + (ae_y_prime - py)**2)**0.5
+                        min_dist,min_idx= np.min(dist),np.argmin(dist)
+                        ae_spl_u.append(integral_dist[min_idx])
+                    
+                    # 5. Refit the splines, this time parameterizing the spline by these distances (u parameter in scipy.splprep)
+                    #ae_spl_u.reverse()
+                    
+                    # sort by increasing u
+                    ae_spl_u = np.array(ae_spl_u)
+                    sorted_idxs = np.argsort(ae_spl_u)
+                    ae_spl_u = ae_spl_u[sorted_idxs]
+                    ae_data  = ae_data[:,sorted_idxs]
+                    
+                    while True and  knot_spacing < 10:
+                        s0 *= 1.2
+                        tck, u = interpolate.splprep(ae_data.astype(float), s=s0, w = w, u = ae_spl_u)
+                        knots = tck[0]
+                        knot_spacing = np.min(np.abs(knots[5:-4] - knots[4:-5]))
+                        print(knot_spacing,s0)
+                    tck, u = interpolate.splprep(ae_data.astype(float), s=s0, w = w, u = ae_spl_u)
+                    splines["{}_{}_{}".format(line,direction,line_side)] = [tck,u]
+                
+
+            
+        # to prevent any bleedover
+        del dist, min_dist, min_idx, ae_spl_y,ae_spl_x, ae_spl_u, ae_data
+           
+        import matplotlib.pyplot as plt
+        plt.figure()
+        legend = []
+        # 6. Sample each of the 4 splines at fine intervals 
+        for key in splines:
+            tck,u = splines[key]
+    
+            span_dist = np.abs(u[0] - u[-1])
+            x_prime, y_prime = interpolate.splev(np.linspace(u[0], u[-1], int(span_dist)), tck)
+            splines[key].append(x_prime)
+            splines[key].append(y_prime)
+            
+            plt.plot(x_prime,y_prime)
+            legend.append(key)
+        
+        ###### Now, for each pair of splines, sample each and get a midway spline. These will be the splines we use
+        
+        for direction in ["EB","WB"]:
+            for line in ["yel","d1","d2","d3"]:
+                new_key = "{}_{}_center".format(direction,line)
+                print("Getting smooth centered spline for {}".format(new_key))
+                
+                for key in splines.keys():
+                    if direction in key and line in key and "i" in key:
+                        i_spline = splines[key][0] # just tck
+                    elif direction in key and line in key and "o" in key:
+                        o_spline = splines[key][0] # just tck
+                        u_range =  np.linspace(np.min(splines[key][1]), np.max(splines[key][1]), 50)
+                
+                # sample each spline at fine interval 
+                #u_range = np.array(med_spl_u )
+                
+                
+                # sample each spline at the same points
+                x_in,y_in  = np.array(interpolate.splev(u_range,i_spline))
+                x_out, y_out = np.array(interpolate.splev(u_range,o_spline))
+                
+                # average the two points
+                y_mid = (y_in + y_out)/2
+                x_mid = (x_in + x_out )/2
+                
+                data = np.stack([x_mid,y_mid])
+                # fit spline y(u)
+                s0 = 0.1
+                knot_spacing = 0
+                while knot_spacing < 100: # adjust spline smoothness for each center line
+                    s0 *= 1.25
+                    mid_line_tck,mid_line_u = interpolate.splprep(data, s=s0, u = u_range)
+                    knots = mid_line_tck[0]
+                    knot_spacing = np.min(np.abs(knots[5:-4] - knots[4:-5]))
+                    print(knot_spacing,s0)
+                # store
+            
+                splines[new_key] = [mid_line_tck,mid_line_u]
+                
+                # plot
+                x_prime, y_prime = interpolate.splev(np.linspace(u_range[0], u_range[-1], 5000), mid_line_tck)
+                splines[new_key].append(x_prime)
+                splines[new_key].append(y_prime)
+                plt.plot(x_prime,y_prime)
+                legend.append(new_key)
+
+        # plt.legend(legend)
+        # plt.show()        
+
+        # # cache spline for each lane for plotting purposes
+        # self.all_splines = splines 
+        # return
+
+        med_spl_x = []
+        med_spl_y = []
+        
+        
+        
+        print("sampling yellow line splines")
+        
+        # 7. Move along one spline and at each point, find the closest point on each other spline
+        # by default, we'll use EB_o as the base spline
+        for main_key in ["yelo_EB_o","yeli_EB_i","yelo_WB_o","yeli_WB_i"]:
+        #for main_key in ["yelo_WB_o","yeli_WB_i"]:
+
+            main_spl = splines[main_key]
+            main_x = main_spl[2]
+            main_y = main_spl[3]
+            
+            
+            for p_idx in range(len(main_x)):
+                px,py = main_x[p_idx],main_y[p_idx]
+                points_to_average = [np.array([px,py])]
+                
+                for key in splines:
+                    if key != main_key:
+                        if key not in ["yelo_WB_o","yeli_WB_i","yelo_EB_o","yeli_EB_i"]: continue
+                        arr_x,arr_y = splines[key][2], splines[key][3]
+                        
+                        dist = np.sqrt((arr_x - px)**2 + (arr_y - py)**2)
+                        min_dist,min_idx= np.min(dist),np.argmin(dist)
+                        
+                        points_to_average.append( np.array([arr_x[min_idx],arr_y[min_idx]]))
+                
+                if len(points_to_average) < 4:
+                    print("Outlier removed")
+                    continue
+                
+                med_point = sum(points_to_average)/len(points_to_average)
+                
+                
+                
+                # 8. Define a point on the median/ midpoint axis as the average on these 4 splines
+                med_spl_x.append(med_point[0])
+                med_spl_y.append(med_point[1])
+            
+        print("Done sampling")
+        
+        # 9. Use the set of median points to define a new spline
+        # sort by increasing x
+        med_data = np.stack([np.array(med_spl_x),np.array(med_spl_y)])
+        med_data = med_data[:,np.argsort(med_data[0])]
+        
+        # remove weirdness (i.e. outlying points) s.t. both x and y are monotonic and strictly increasing
+        keep = (med_data[1,1:] <  med_data[1,:-1]).astype(int).tolist()
+        keep = [1] + keep
+        keep = np.array(keep)
+        med_data = med_data[:,keep.nonzero()[0]]
+        
+        keep = (med_data[0,1:] >  med_data[0,:-1]).astype(int).tolist()
+        keep = [1] + keep
+        keep = np.array(keep)
+        med_data = med_data[:,keep.nonzero()[0]]
+        #med_data = np.ascontiguousarray(med_data)
+        
+
+        
+        s = 10
+        n_knots = len(med_data[0])
+        while n_knots > 300:
+            med_tck,med_u = interpolate.splprep(med_data, s=s, per=False)
+            n_knots = len(med_tck[0])
+            s = s**1.2
+            print("Fitting median spline, n_knots = {}".format(n_knots))
+        
+        # 10. Use the finite difference method to reparameterize this spline according to distance along it
+        med_spl_x = med_data[0]
+        med_spl_y = med_data[1]
+        span_dist = np.sqrt((med_spl_x[0] - med_spl_x[-1])**2 + (med_spl_y[0] - med_spl_y[-1])**2)
+        med_x_prime, med_y_prime = interpolate.splev(np.linspace(0, 1, int(span_dist*samples_per_foot)), med_tck)
+        
+        
+        med_fd_dist = np.concatenate(  (np.array([0]),  ((med_x_prime[1:] - med_x_prime[:-1])**2 + (med_y_prime[1:] - med_y_prime[:-1])**2)**0.5),axis = 0) # by convention fd_dist[0] will be 0, so fd_dist[i] = sum(int_dist[0:i])
+        med_integral_dist = np.cumsum(med_fd_dist)
+        
+        # for each fit point, find closest point on spline, and assign it the corresponding integral distance
+        med_spl_u = []
+        print("Getting integral distance along median spline")
+        for p_idx in range(len(med_data[0])):
+            px,py = med_data[0,p_idx], med_data[1,p_idx]
+            
+            dist = ((med_x_prime - px)**2 + (med_y_prime - py)**2)**0.5
+            min_dist,min_idx= np.min(dist),np.argmin(dist)
+            med_spl_u.append(med_integral_dist[min_idx])
+        
+        
+        # sort by increasing u I guess
+        med_spl_u = np.array(med_spl_u)
+        sorted_idxs = np.argsort(med_spl_u)
+        med_spl_u = med_spl_u[sorted_idxs]
+        med_data  = med_data[:,sorted_idxs]
+        
+        # sort by strictly increasing u
+        keep = (med_spl_u[1:] >  med_spl_u[:-1]).astype(int).tolist()
+        keep = [1] + keep
+        keep = np.array(keep)
+        med_data = med_data[:,keep.nonzero()[0]]
+        med_spl_u = med_spl_u[keep.nonzero()[0]]
+        
+        import matplotlib.pyplot as plt
+        #plt.figure(figsize = (20,20))
+        plt.plot(med_data[0],med_data[1])
+        legend.append("Median")
+        
+       
+        
+        
+        smoothing_dist = 500
+        max_allowable_dev = 1
+        # at this point, we have the median data and the integrated median distances (med_spl_u) and med_data
+        # Let's try simply finding a single spline with <smoothing_dist> spaced fit-points and high-weighted edges
+        
+        
+        
+  
+        
+        
+        # plt.figure()
+        # plt.plot(med_spl_u)
+        # plt.plot(np.array(med_spl_u)[np.argsort(med_spl_u)])
+        # plt.legend(["Unsorted","Sorted"])
+        
+        
+        s = 8
+        min_dist = 0
+        max_dev = 0
+
+        while min_dist < smoothing_dist and max_dev < max_allowable_dev:
+            final_tck,final_u = interpolate.splprep(med_data.astype(float), s=s, u=med_spl_u)
+            knots = final_tck[0]
+            min_dist = np.min(np.abs(knots[4:] - knots[:-4]))
+            
+            current_x,current_y = interpolate.splev(med_spl_u,final_tck)
+            
+            dist = ((current_x - med_data[0,:])**2 + (current_y - med_data[1,:])**2)**0.5
+            max_dev = np.max(dist)
+            
+            print("With s = {}, {} knots, and min knot spacing {}, max spline - median point deviation = {}".format(s,len(knots),min_dist,max_dev))
+            s = s**1.1
+        
+        #final_tck, final_u = interpolate.splprep(med_data, u = med_spl_u)
+        self.median_tck = final_tck
+        self.median_u = final_u
+        
+        
+        # sample for final plotting
+        final_plot_x,final_plot_y = interpolate.splev(np.linspace(min(med_spl_u), max(med_spl_u), 2000), final_tck)
+        plt.plot(final_plot_x,final_plot_y)
+        legend.append("Final Spline")
+        
+        
+    
+        
+        
+        # cache spline for each lane for plotting purposes
+        self.all_splines = splines 
+
+        
+        
+        
+        
+        
+        ### get the inverse spline g(x) = u for guessing initial spline point
+        med_spl_u = np.array(med_spl_u)
+        print(med_data.shape,med_spl_u.shape)
+    
+    
+        # get guess_tck from all sparse 
+        if True:
+            med_data = np.array([final_plot_x,final_plot_y])
+            med_spl_u = np.linspace(min(med_spl_u), max(med_spl_u), 2000)
+
+            
+        # sort by strictly increasing x
+        sorted_idxs = np.argsort(med_data[0])
+        med_data = med_data[:,sorted_idxs]
+        med_spl_u = med_spl_u[sorted_idxs]
+    
+        self.guess_tck = interpolate.splrep(med_data[0].astype(float),med_spl_u.astype(float))
+        
+        # get the secondary inverse spline g(y) = u for guessing initial spline point
+        med_spl_u = np.array(med_spl_u)
+        
+        # a second copy for later which won't be resorted
+        u_range = np.array(med_spl_u )
+        
+        print(med_data.shape,med_spl_u.shape)
+    
+    
+        # sort by strictly increasing x
+        sorted_idxs = np.argsort(med_data[1])
+        med_data = med_data[:,sorted_idxs]
+        med_spl_u = med_spl_u[sorted_idxs]
+        self.guess_tck2 = interpolate.splrep(med_data[1].astype(float),med_spl_u.astype(float))
+            
+
+        plt.legend(legend)
+        plt.title("Individual splines")
+        plt.show()    
+            
+        
+        ### Offset by MM
+        if use_MM_offset:
+            # 11. Optionally, compute a median spline distance offset from mile markers
+            self.MM_offset = self._fit_MM_offset(space_dir)
+        
+        
+        ### get y(u) splines for eastbound and westbound side yellow lines
+        
+        if False:
+            self.yellow_splines = {}
+            
+            for direction in ["EB", "WB"]:
+                i_spline = splines["yeli_{}_i".format(direction)][0] # just tck
+                
+            
+                # sample each spline at fine interval 
+                u_range = np.array(med_spl_u )
+                sorted_idxs = np.argsort(u_range)
+                u_range = u_range[sorted_idxs]
+                
+                # sample each spline at the same points
+                y_in  = np.array(interpolate.splev(u_range,i_spline))
+                med   = np.array(interpolate.splev(u_range,self.median_tck))
+                
+                dist = np.sum(((y_in-med)**2),axis = 0)**0.5
+                if direction == "WB": dist *= -1
+        
+                self.yellow_splines[direction] = interpolate.splrep(u_range,dist,s = 1)
+                
+
+            
+            
+    def _fit_spline_old(self,space_dir,use_MM_offset = False):
         """
         Spline fitting is done by:
             1. Assemble all points labeled along a yellow line in either direction
@@ -700,8 +1452,7 @@ class Curvilinear_Homography():
                     if direction.lower() not in file:
                         continue
                     
-                    # if "P40C02" in file or "P31C02" in file or "P25C02" in file:
-                    #     continue
+                
                     
                     # load all points
                     dataframe = pd.read_csv(os.path.join(space_dir,file))
@@ -732,59 +1483,101 @@ class Curvilinear_Homography():
                         ae_id += st_id
                 
                 
-                ae_spl_x = []
-                ae_spl_y = []
-                ae_spl_u = []  # u parameterizes distance along spline 
+                for line in ["yel{}".format(line_side), "d1{}".format(line_side),"d2{}".format(line_side),"d3{}".format(line_side)]:
                 
-                
-                for i in range(len(ae_x)):
+                    ae_spl_x = []
+                    ae_spl_y = []
+                    ae_spl_u = []  # u parameterizes distance along spline 
+                                    
                     
-                    if "yel{}".format(line_side) in ae_id[i]:
-                        ae_spl_x.append(ae_x[i])
-                        ae_spl_y.append(ae_y[i])
-    
-                # 2. Fit a spline to each of EB, WB inside and outside
-                 
-                # compute the yellow line spline in state plane coordinates (sort points by y value since road is mostly north-south)
-                ae_data = np.stack([np.array(ae_spl_x),np.array(ae_spl_y)])
-                ae_data = ae_data[:,np.argsort(ae_data[1,:],)[::-1]]
-            
-                # 3. Sample the spline at fine intervals
-                # get spline and sample points on spline
-                ae_tck, ae_u = interpolate.splprep(ae_data, s=0, per=False)
-                span_dist = np.sqrt((ae_spl_x[0] - ae_spl_x[-1])**2 + (ae_spl_y[0] - ae_spl_y[-1])**2)
-                ae_x_prime, ae_y_prime = interpolate.splev(np.linspace(0, 1, int(span_dist*samples_per_foot)), ae_tck)
-            
-    
-                # 4. Use finite difference method to determine the distance along the spline for each fit point
-                fd_dist = np.concatenate(  (np.array([0]),  ((ae_x_prime[1:] - ae_x_prime[:-1])**2 + (ae_y_prime[1:] - ae_y_prime[:-1])**2)**0.5),axis = 0) # by convention fd_dist[0] will be 0, so fd_dist[i] = sum(int_dist[0:i])
-                integral_dist = np.cumsum(fd_dist)
-                
-                # for each fit point, find closest point on spline, and assign it the corresponding integral distance
-                for p_idx in range(len(ae_spl_x)):
-                    px = ae_spl_x[p_idx]
-                    py = ae_spl_y[p_idx]
+                    letter_to_side = {"a":"i",
+                                      "b":"i",
+                                      "c":"o",
+                                      "d":"o"
+                                      }
                     
-                    dist = ((ae_x_prime - px)**2 + (ae_y_prime - py)**2)**0.5
-                    min_dist,min_idx= np.min(dist),np.argmin(dist)
-                    ae_spl_u.append(integral_dist[min_idx])
+                    for i in range(len(ae_x)):
+                        try:
+                            if line in ae_id[i] or ( len(ae_id[i].split("_")) == 4  and line == ae_id[i].split("_")[1] + letter_to_side[ae_id[i].split("_")[3]]):
+                            #if "yel{}".format(line_side) in ae_id[i]:
+                                ae_spl_x.append(ae_x[i])
+                                ae_spl_y.append(ae_y[i])
+                        except KeyError:
+                            pass
+        
+                    # 2. Fit a spline to each of EB, WB inside and outside
+                     
+                    # find a sensible smoothness parameter
+                    s0 = 100
+                    n_knots = np.inf
+                    
+                    # compute the yellow line spline in state plane coordinates (sort points by y value since road is mostly north-south)
+                    ae_data = np.stack([np.array(ae_spl_x),np.array(ae_spl_y)])
+                    order = np.argsort(ae_data[0,:])
+                    ae_data2 = ae_data[:,order]#[::-1]]
+                    order2 = np.argsort(ae_data[0,:])
+                    ae_data = ae_data2.copy()
+                    # 3. Sample the spline at fine intervals
+                    # get spline and sample points on spline
+                    w = np.ones(ae_data.shape[1])
+                    # w[:10 ] = 1000
+                    # w[-10:] = 1000
+                    
+                    while n_knots > 200:
+                        s0 = s0**1.05
+                        print(s0,n_knots,line)
+                        
+                        try:
+                            ae_tck, ae_u = interpolate.splprep(ae_data, s=s0, w = w, per=False)
+                            n_knots = len(ae_tck[0])
+                        except:
+                            s0 = s0 **(1/1.05)
+                    
+                    ae_tck, ae_u = interpolate.splprep(ae_data, s=s0, w = w, per=False) 
+                    
+                    span_dist = np.sqrt((ae_spl_x[0] - ae_spl_x[-1])**2 + (ae_spl_y[0] - ae_spl_y[-1])**2)
+                    ae_x_prime, ae_y_prime = interpolate.splev(np.linspace(0, 1, int(span_dist*samples_per_foot)), ae_tck)
                 
-                # 5. Refit the splines, this time parameterizing the spline by these distances (u parameter in scipy.splprep)
-                #ae_spl_u.reverse()
+                    # TEMP
+                    # plt.plot(ae_data[0,:],ae_data[1,:], "o-")
+                    # legend.append(direction + "_" + line_side)
+        
+                    # 4. Use finite difference method to determine the distance along the spline for each fit point
+                    fd_dist = np.concatenate(  (np.array([0]),  ((ae_x_prime[1:] - ae_x_prime[:-1])**2 + (ae_y_prime[1:] - ae_y_prime[:-1])**2)**0.5),axis = 0) # by convention fd_dist[0] will be 0, so fd_dist[i] = sum(int_dist[0:i])
+                    integral_dist = np.cumsum(fd_dist)
+                    
+                    # for each fit point, find closest point on spline, and assign it the corresponding integral distance
+                    for p_idx in range(len(ae_spl_x)):
+                        # I think these should instead reference ae_data because that one has been sorted
+                        #px = ae_spl_x[p_idx]
+                        #py = ae_spl_y[p_idx]
+                        px = ae_data[0,p_idx]
+                        py = ae_data[1,p_idx]
+                        
+                        dist = ((ae_x_prime - px)**2 + (ae_y_prime - py)**2)**0.5
+                        min_dist,min_idx= np.min(dist),np.argmin(dist)
+                        ae_spl_u.append(integral_dist[min_idx])
+                    
+                    # 5. Refit the splines, this time parameterizing the spline by these distances (u parameter in scipy.splprep)
+                    #ae_spl_u.reverse()
+                    
+                    # sort by increasing u
+                    ae_spl_u = np.array(ae_spl_u)
+                    sorted_idxs = np.argsort(ae_spl_u)
+                    ae_spl_u = ae_spl_u[sorted_idxs]
+                    ae_data  = ae_data[:,sorted_idxs]
+                    
+                    tck, u = interpolate.splprep(ae_data.astype(float), s=s0, w = w, u = ae_spl_u)
+                    splines["{}_{}_{}".format(line,direction,line_side)] = [tck,u]
                 
-                # sort by increasing u
-                ae_spl_u = np.array(ae_spl_u)
-                sorted_idxs = np.argsort(ae_spl_u)
-                ae_spl_u = ae_spl_u[sorted_idxs]
-                ae_data  = ae_data[:,sorted_idxs]
-                
-                tck, u = interpolate.splprep(ae_data.astype(float), s=0, u = ae_spl_u)
-                splines["{}_{}".format(direction,line_side)] = [tck,u]
-                
+
             
         # to prevent any bleedover
         del dist, min_dist, min_idx, ae_spl_y,ae_spl_x, ae_spl_u, ae_data
            
+        import matplotlib.pyplot as plt
+        plt.figure()
+        legend = []
         # 6. Sample each of the 4 splines at fine intervals (every 2 feet)
         for key in splines:
             tck,u = splines[key]
@@ -794,43 +1587,52 @@ class Curvilinear_Homography():
             splines[key].append(x_prime)
             splines[key].append(y_prime)
             
+            plt.plot(x_prime,y_prime)
+            legend.append(key)
+        
+
+        # plt.legend(legend)
+        # plt.show()        
+
         med_spl_x = []
         med_spl_y = []
         
         
+        
+        
         # 7. Move along one spline and at each point, find the closest point on each other spline
         # by default, we'll use EB_o as the base spline
-        main_key = "WB_i"
-        main_spl = splines[main_key]
-        main_x = main_spl[2]
-        main_y = main_spl[3]
-        
-        
-        for p_idx in range(len(main_x)):
-            px,py = main_x[p_idx],main_y[p_idx]
-            points_to_average = [np.array([px,py])]
-            
-            for key in splines:
-                if key != main_key:
-                    arr_x,arr_y = splines[key][2], splines[key][3]
-                    
-                    dist = np.sqrt((arr_x - px)**2 + (arr_y - py)**2)
-                    min_dist,min_idx= np.min(dist),np.argmin(dist)
-                    
-                    points_to_average.append( np.array([arr_x[min_idx],arr_y[min_idx]]))
-            
-            if len(points_to_average) != 4:
-                print("Outlier removed")
-                continue
-            
-            med_point = sum(points_to_average)/len(points_to_average)
+        for main_key in ["yelo_WB_o","yeli_WB_i"]:#,"yelo_WB_o","yeli_WB_i"]:
+            main_spl = splines[main_key]
+            main_x = main_spl[2]
+            main_y = main_spl[3]
             
             
+            for p_idx in range(len(main_x)):
+                px,py = main_x[p_idx],main_y[p_idx]
+                points_to_average = [np.array([px,py])]
+                
+                for key in ["yelo_WB_o","yeli_WB_i"]:# splines:
+                    if key != main_key:
+                        arr_x,arr_y = splines[key][2], splines[key][3]
+                        
+                        dist = np.sqrt((arr_x - px)**2 + (arr_y - py)**2)
+                        min_dist,min_idx= np.min(dist),np.argmin(dist)
+                        
+                        points_to_average.append( np.array([arr_x[min_idx],arr_y[min_idx]]))
+                
+                # if len(points_to_average) < 3:
+                #     print("Outlier removed")
+                #     continue
+                
+                med_point = sum(points_to_average)/len(points_to_average)
+                
+                
+                
+                # 8. Define a point on the median/ midpoint axis as the average on these 4 splines
+                med_spl_x.append(med_point[0])
+                med_spl_y.append(med_point[1])
             
-            # 8. Define a point on the median/ midpoint axis as the average on these 4 splines
-            med_spl_x.append(med_point[0])
-            med_spl_y.append(med_point[1])
-        
     
         
         # 9. Use the set of median points to define a new spline
@@ -850,9 +1652,9 @@ class Curvilinear_Homography():
         med_data = med_data[:,keep.nonzero()[0]]
         #med_data = np.ascontiguousarray(med_data)
         
-        s = 10
+        s = 2
         n_knots = len(med_data[0])
-        while n_knots > 600:
+        while n_knots > 5000:
             med_tck,med_u = interpolate.splprep(med_data, s=s, per=False)
             n_knots = len(med_tck[0])
             s = s**1.2
@@ -890,20 +1692,44 @@ class Curvilinear_Homography():
         med_spl_u = med_spl_u[keep.nonzero()[0]]
         
         import matplotlib.pyplot as plt
-        plt.figure(figsize = (20,20))
+        #plt.figure(figsize = (20,20))
         plt.plot(med_data[0],med_data[1])
-        plt.figure()
-        plt.plot(med_spl_u)
-        plt.plot(np.array(med_spl_u)[np.argsort(med_spl_u)])
+        legend.append("Median")
         
-        smoothing_dist = 100
         
-        s = 10.0
+        
+        
+        smoothing_dist = 20
+        max_allowable_dev = 0.25
+        # at this point, we have the median data and the integrated median distances (med_spl_u) and med_data
+        # Let's try simply finding a single spline with <smoothing_dist> spaced fit-points and high-weighted edges
+        
+        
+        
+  
+        
+        
+        # plt.figure()
+        # plt.plot(med_spl_u)
+        # plt.plot(np.array(med_spl_u)[np.argsort(med_spl_u)])
+        # plt.legend(["Unsorted","Sorted"])
+        
+        
+        s = 8
         min_dist = 0
-        while min_dist < smoothing_dist:
+        max_dev = 0
+
+        while min_dist < smoothing_dist and max_dev < max_allowable_dev:
             final_tck,final_u = interpolate.splprep(med_data.astype(float), s=s, u=med_spl_u)
             knots = final_tck[0]
             min_dist = np.min(np.abs(knots[4:] - knots[:-4]))
+            
+            current_x,current_y = interpolate.splev(med_spl_u,final_tck)
+            
+            dist = ((current_x - med_data[0,:])**2 + (current_y - med_data[1,:])**2)**0.5
+            max_dev = np.max(dist)
+            
+            print("With s = {}, {} knots, and min knot spacing {}, max spline - median point deviation = {}".format(s,len(knots),min_dist,max_dev))
             s = s**1.1
         
         #final_tck, final_u = interpolate.splprep(med_data, u = med_spl_u)
@@ -911,9 +1737,14 @@ class Curvilinear_Homography():
         self.median_u = final_u
         
         
+        # sample for final plotting
+        final_plot_x,final_plot_y = interpolate.splev(np.linspace(min(med_spl_u), max(med_spl_u), 2000), final_tck)
+        plt.plot(final_plot_x,final_plot_y)
+        legend.append("Final Spline")
         
         
-        # Finally, resample the spline at 100 foot intervals, and use this to fit a final spline
+        
+        # Finally, resample the spline at <smoothing_dist> foot intervals, and use this to fit a final spline
         ulist = []
         xlist = []
         ylist = []
@@ -922,19 +1753,31 @@ class Curvilinear_Homography():
             x,y = interpolate.splev(u,final_tck)
             xlist.append(x)
             ylist.append(y)
-            
+         
+        legend.append("Smoothed median respampled data")    
+        plt.plot(xlist,ylist)
+        
         data = np.array([xlist,ylist])
         smooth_tck,smooth_u = interpolate.splprep(data,u= ulist)
         
-        self.median_tck = smooth_tck
-        self.median_u = smooth_u
+        # self.median_tck = smooth_tck
+        # self.median_u = smooth_u
+        
+        
+        # cache spline for each lane for plotting purposes
+        self.all_splines = splines 
+
+        
+        
+        
+        
         
         # get the inverse spline g(x) = u for guessing initial spline point
         med_spl_u = np.array(med_spl_u)
         print(med_data.shape,med_spl_u.shape)
     
     
-        # get guess_tck from all sparse
+        # get guess_tck from all sparse 
         if True:
             med_data = data
             med_spl_u = np.array(ulist)
@@ -959,20 +1802,23 @@ class Curvilinear_Homography():
         self.guess_tck2 = interpolate.splrep(med_data[1].astype(float),med_spl_u.astype(float))
             
 
-            
+        plt.legend(legend)
+        plt.title("Individual splines")
+        plt.show()    
             
         
         if use_MM_offset:
             # 11. Optionally, compute a median spline distance offset from mile markers
             self.MM_offset = self._fit_MM_offset(space_dir)
         
-            # # 12. Optionally, recompute the same spline, this time accounting for the MM offset
-            # med_spl_u += self.MM_offset
-            # final_tck, final_u = interpolate.splprep(med_data.astype(float), s=s, u = med_spl_u)
-            # self.median_tck = final_tck
-            # self.median_u = final_u
+            # 12. Optionally, recompute the same spline, this time accounting for the MM offset
+            med_spl_u += self.MM_offset
+            final_tck, final_u = interpolate.splprep(med_data.astype(float), s=s, u = med_spl_u)
+            self.median_tck = final_tck
+            self.median_u = final_u
     
-    def closest_spline_point(self,points, epsilon = 0.1, max_iterations = 100):
+    
+    def closest_spline_point(self,points, epsilon = 0.01, max_iterations = 10):
         """
         Given a tensor of points in 3D space, find the closest point on the median spline
         for each point as follows:
@@ -984,12 +1830,38 @@ class Curvilinear_Homography():
         max_iterations - int - ii. keep iterating until n_iterations = max_iterations
         RETURNS:         [d] tensor of coordinates along spline axis
         """
+        PLOT = False
+        leg = []
         start = time.time()
         # intial guess at closest u values
         points = points.cpu().data.numpy()
+        #points = points[:1,:]
         guess_u = interpolate.splev(points[:,0],self.guess_tck)
         guess_u2 = interpolate.splev(points[:,1],self.guess_tck2)
         guess_u = (guess_u + guess_u2)/2.0
+        
+        guess_u *= 0
+        
+        
+        
+        # guesses = np.linspace(guess_u-500,guess_u+500,103)
+        # guess_x,guess_y = interpolate.splev(guesses, self.median_tck)
+        
+        # plt.scatter(guess_x[:,0],guess_y[:,0])
+        # leg.append("Initial samples")
+        
+        # dist = np.sqrt((guess_x - points[:,0][np.newaxis,:].repeat(guess_x.shape[0],axis = 0))**2 + (guess_y - points[:,1][np.newaxis,:].repeat(guess_y.shape[0],axis = 0))**2)
+        # min_idx = np.argmin(dist,axis = 0)
+        
+        # guess = guesses[min_idx,[i for i in range(guesses.shape[1])]]
+        # guesses = np.linspace(guess-10,guess+10,200)
+        # guess_x,guess_y = interpolate.splev(guesses, self.median_tck)
+        
+        # dist = np.sqrt((guess_x - points[:,0])**2 + (guess_y - points[:,1])**2)
+        # min_idx = np.argmin(dist,axis = 0)
+        
+        #guess_u = guesses[min_idx,[i for i in range(guesses.shape[1])]]
+        
         
         it = 0
         max_change = np.inf
@@ -1001,8 +1873,9 @@ class Curvilinear_Homography():
             
             dist_proxy = (spl_x - points[:,0])**2 + (spl_y - points[:,1])**2
             dist_proxy_deriv = (spl_x-points[:,0])*spl_xx + (spl_y-points[:,1])*spl_yy
-            dist_proxy_deriv2 = (2*spl_xx**2)+2*(spl_x-points[:,0])*spl_xxx + (2*spl_yy**2)+2*(spl_y-points[:,1])*spl_yyy
-            
+            #dist_proxy_deriv2 = (2*spl_xx**2)+2*(spl_x-points[:,0])*spl_xxx + (2*spl_yy**2)+2*(spl_y-points[:,1])*spl_yyy
+            dist_proxy_deriv2 = (spl_xx**2)+(spl_x-points[:,0])*spl_xxx + (spl_yy**2)+(spl_y-points[:,1])*spl_yyy
+
             
             new_u = guess_u - dist_proxy_deriv/dist_proxy_deriv2
             
@@ -1011,9 +1884,31 @@ class Curvilinear_Homography():
             
             guess_u = new_u
             
+            if PLOT:
+                plt.scatter(spl_x[:1],spl_y[:1])
+                leg.append(it)
+                
             #print("Max step: {}".format(max_change))
          
         #print("Newton method took {}s for {} points".format(time.time() - start,points.shape[0]))
+        
+        if PLOT:
+            
+            # plt.scatter(guess_x[min_idx[0],0],guess_y[min_idx[0],0])
+            # leg.append("Closest")
+            
+            plt.scatter(points[0,0],points[0,1])
+            leg.append("Point")
+            
+            splx,sply = interpolate.splev(np.linspace(0,30000,100000),self.median_tck)
+            plt.plot(splx,sply)
+            leg.append("Median Spline")
+            
+            plt.legend(leg)
+            plt.axis("equal")
+            plt.show()
+            raise Exception
+        
         return guess_u
             
     
@@ -1196,7 +2091,287 @@ class Curvilinear_Homography():
                 except:
                     pass
         
-    def _generate_lane_offset(self,space_dir):
+    def _generate_lane_offset(self,space_dir,SPLINE_OFFSET = False,SHIFT = False):
+        """
+        0.) Load all points into line_pts
+        1.) Get mean for yellow line on each side
+        2.) For each point, subtract yellow line and add back in mean yellow line
+        3.) Find best fit line (mean/ std) for each line
+        4.) Plot each
+        5.) Save lane offsets?
+        """
+    
+        def safe(x):
+            try:
+                return x.item()
+            except:
+                return x
+            
+        # 0. assemble all lane marking coordinates across all correspondences
+
+        line_pts = {}
+        
+        for direction in ["eb","wb"]:
+            ### State space, do once
+            
+
+            
+            # 1. Assemble all points labeled along a yellow line in either direction
+            for file in os.listdir(space_dir):
+                if direction.lower() not in file or ("yel" not in file and "d1" not in file and "d2" not in file and "d3" not in file and "d4" not in file):
+                    continue
+                
+                print(file)
+                
+                
+                ae_x = []
+                ae_y = []
+                ae_id = []
+                # load all points
+                dataframe = pd.read_csv(os.path.join(space_dir,file))
+                try:
+                    dataframe = dataframe[dataframe['point_pos'].notnull()]
+                    attribute_name = file.split(".csv")[0]
+                    feature_idx = dataframe["point_id"].tolist()
+                    st_id = [attribute_name + "_" + item for item in feature_idx]
+                    
+                    st_x = dataframe["st_x"].tolist()
+                    st_y = dataframe["st_y"].tolist()
+                
+                    ae_x  += st_x
+                    ae_y  += st_y
+                    ae_id += st_id
+                except:
+                    dataframe = dataframe[dataframe['side'].notnull()]
+                    attribute_name = file.split(".csv")[0]
+                    feature_idx = dataframe["id"].tolist()
+                    side        = dataframe["side"].tolist()
+                    st_id = [attribute_name + str(side[i]) + "_" + str(feature_idx[i]) for i in range(len(feature_idx))]
+                    
+                    st_x = dataframe["st_x"].tolist()
+                    st_y = dataframe["st_y"].tolist()
+                
+                    ae_x  += st_x
+                    ae_y  += st_y
+                    ae_id += st_id
+            
+                # if direction == "wb":
+                if SHIFT:
+                    ae_x,ae_y,ae_id = self.shift_aerial_points2(ae_x,ae_y,ae_id)    
+            
+                    
+            
+                    if False:
+                        # save updated spline_points here
+                        if "yel" not in file:
+                            id_trunc = [item.split("_")[-2] + "_" + item.split("_")[-1] for item in ae_id]
+                        else:
+                            id_trunc = [int(item.split("_")[-1]) for item in ae_id]
+                            
+                        update_dict = dict([(id_trunc[i], [safe(ae_x[i]),safe(ae_y[i])]) for i in range(len(ae_id))])     
+                        orig_ids = feature_idx
+                        
+                        x_update = []
+                        y_update = []
+                        for item in orig_ids:
+                            new_item = update_dict[item]
+                            x_update.append(new_item[0])
+                            y_update.append(new_item[1])
+                            
+                        dataframe["st_x"] = x_update
+                        dataframe["st_y"] = y_update
+                        dataframe.to_csv(os.path.join("shifted_aerial_points",file))    
+            
+                try:
+                    line_pts[attribute_name][0].append(ae_x)
+                    line_pts[attribute_name][1].append(ae_y)
+                except KeyError:
+                    line_pts[attribute_name] = [ae_x,ae_y]
+                    
+        if self.yellow_offsets is None:
+            yellow_offsets = {}
+            for direction in ["EB","WB"]:
+                # 1. Get mean yellow line value
+                spl = self.all_splines["yeli_{}_i".format(direction.upper())]
+                ran = max(spl[1]) - min(spl[1])
+                
+                u = np.linspace(min(spl[1]),max(spl[1]),int(ran))
+                
+               
+                tck = spl[0]
+                yelx,yely = interpolate.splev(u,tck)
+                yel_space = torch.tensor([yelx,yely,torch.zeros(len(yelx))]).permute(1,0).unsqueeze(1)
+                yel_state = self.space_to_state(yel_space)
+                ys  = yel_state[:,1]
+                
+                width = 1205
+                extend1 = torch.ones((width-1)//2) * ys[0]
+                extend2 = torch.ones((width-1)//2) * ys[-1]
+                ys_extended = torch.cat([extend1,ys,extend2])
+    
+                smoother = np.hamming(width)
+                smoother = smoother/ sum(smoother)
+                ys = np.convolve(ys_extended,smoother,mode = "valid")
+                
+                bin_width = 10
+                offsets = np.zeros(3000)
+                counts = np.zeros(3000)
+                
+                for idx in range(len(u)):
+                    binidx = int(u[idx]//bin_width)
+                    offsets[binidx] += ys[idx]
+                    counts[binidx]  += 1
+                
+                offsets = offsets / (counts + 1e-04)
+                
+                idx = 0
+                while offsets[idx] == 0:
+                    idx += 1
+                offsets[:idx] = offsets[idx]
+                
+                idx = -1
+                while offsets[idx] == 0:
+                    idx-= 1
+                    offsets[idx:] = offsets[idx]
+                    
+                yellow_offsets[direction] = offsets
+            
+            
+            self.yellow_offsets = yellow_offsets
+            self.save(self.save_file)
+        
+        # 2. for each lane, convert all points to roadway coordinates
+        
+        roadway_data = {}
+        for key in line_pts.keys():
+            
+            if "eb" in key or "EB" in key:
+                ymean = 12
+                direction = "EB"
+            else:
+                ymean = -12
+                direction = "WB"
+                
+                
+            data = line_pts[key]
+            space_data = torch.tensor([data[0],data[1],torch.zeros(len(data[0]))]).permute(1,0).unsqueeze(1)
+            
+            road_data = self.space_to_state(space_data)
+            order = torch.argsort(road_data[:,0])
+            
+            
+            #tck = self.all_splines[direction.upper()+ "_yel_center"][0]
+            
+            # TODO - let's use the black lines we plot as the yellow offset spline since they are obviously right
+            # if direction == "WB":
+            #     road_data[:,1] = road_data[:,1] - yel_state[:,1] + ymean
+            # else:
+            if SPLINE_OFFSET:
+                
+                # tck = self.all_splines["yeli_{}_i".format(direction.upper())][0]
+                # yelx,yely = interpolate.splev(road_data[:,0],tck)
+                # yel_space = torch.tensor([yelx,yely,torch.zeros(len(yelx))]).permute(1,0).unsqueeze(1)
+                # yel_state = self.space_to_state(yel_space)
+                #                                         # TODO - let's use the black lines we plot as the yellow offset spline since they are obviously right
+                # road_data[:,1] = road_data[:,1] - yel_state[:,1] + ymean
+                
+                # new offset style
+                road_data_offset_bins = (road_data[:,0] /10).int()
+                offsets = yellow_offsets[direction][road_data_offset_bins]
+                road_data[:,1] = road_data[:,1] - offsets + ymean
+                
+            roadway_data[key] = road_data[order,:2]
+            
+        # 3. Get mean and stddev for line
+        for key in roadway_data.keys():
+            mean = torch.mean(roadway_data[key][:,1])
+            std =  torch.std(roadway_data[key][:,1])
+            print("Stats for {}: mean {}, stddev {}".format(key,mean,std))
+        
+        
+        
+        
+        
+        import matplotlib.pyplot as plt
+        plt.figure()
+        leg= []
+        # 5. Plot
+        
+        for key in roadway_data.keys():
+            plt.plot(roadway_data[key][:,0],roadway_data[key][:,1])
+            leg.append(key)
+        
+        if self.all_splines:
+            for key in self.all_splines.keys():
+                if True and "center" not in key:
+                    
+                    if "eb" in key or "EB" in key:
+                        ymean = 12
+                        direction = "EB"
+                    else:
+                        ymean = -12
+                        direction = "WB"
+                    
+                    spline = self.all_splines[key]
+                    xs,ys = spline[2],spline[3]
+                    
+                    space_data = torch.tensor([xs,ys,torch.zeros(len(xs))]).permute(1,0).unsqueeze(1)
+                    state_data = self.space_to_state(space_data)
+                    
+                    #tck = self.all_splines[direction.upper()+ "_yel_center"][0]
+                    
+                    if SPLINE_OFFSET:
+                        # tck = self.all_splines["yeli_{}_i".format(direction.upper())][0]
+                        # yelx,yely = interpolate.splev(state_data[:,0],tck)
+                        # yel_space = torch.tensor([yelx,yely,torch.zeros(len(yelx))]).permute(1,0).unsqueeze(1)
+                        # yel_state = self.space_to_state(yel_space)
+                        # state_data[:,1] = state_data[:,1] - yel_state[:,1] + ymean
+                        
+                        # new offset style
+                        road_data_offset_bins = (state_data[:,0]/10).int()
+                        offsets = yellow_offsets[direction][road_data_offset_bins]
+                        state_data[:,1] = state_data[:,1] - offsets + ymean
+                    
+                    
+                    xs,ys = state_data[:,0],state_data[:,1]
+                    
+                    # try smoothing
+                    if True:
+                        width = 1205
+                        extend1 = torch.ones((width-1)//2) * ys[0]
+                        extend2 = torch.ones((width-1)//2) * ys[-1]
+                        ys_extended = torch.cat([extend1,ys,extend2])
+    
+                        smoother = np.hamming(1205)
+                        smoother = smoother/ sum(smoother)
+                        ys = np.convolve(ys_extended,smoother,mode = "valid")
+                        
+                        
+                    #xs,ys = interpolate.splev(np.linspace(0,25000,1000),tck)
+    
+                    # sample at 1000 points
+                    plt.plot(xs,ys,color = (0,0,0))
+                    leg.append(key)
+        
+        if True:
+            # for each correspondence, plot all of the image points in roadway coordinates
+            for corr in self.correspondence:
+                direction = corr.split("_")[-1]
+                if direction == "WB":  ymean = -12
+                else: ymean = 12
+                im_pts = self.correspondence[corr]["corr_pts"]
+                im_pts = torch.from_numpy(im_pts).unsqueeze(1)
+                rcs_pts = self.im_to_state(im_pts, heights = torch.zeros(im_pts.shape[0]),name = [corr for _ in range(im_pts.shape[0])],refine_heights = False)
+                
+                if SPLINE_OFFSET:
+                    road_data_offset_bins = (rcs_pts[:,0]/10).int()
+                    offsets = yellow_offsets[direction][road_data_offset_bins]
+                    rcs_pts[:,1] = rcs_pts[:,1] - offsets + ymean
+                    
+                plt.scatter(rcs_pts[:,0],rcs_pts[:,1])
+
+        
+    def _generate_lane_offset_old(self,space_dir):
         """
         For each lane in d1,d2,d3,d4,yellow for each side, compute mean and standard deviation
         """
@@ -1216,8 +2391,7 @@ class Curvilinear_Homography():
                 if direction.lower() not in file or ("yel" not in file and "d1" not in file and "d2" not in file and "d3" not in file and "d4" not in file):
                     continue
                 
-                # if "P40C02" in file or "P31C02" in file or "P25C02" in file:
-                #     continue
+                
                 
                 ae_x = []
                 ae_y = []
@@ -1287,8 +2461,37 @@ class Curvilinear_Homography():
         for key in roadway_data.keys():
             plt.plot(roadway_data[key][:,0],roadway_data[key][:,1])
             leg.append(key)
-        plt.legend(leg)
         
+        if self.all_splines:
+            for spline in self.all_splines.values():
+                xs,ys = spline[2],spline[3]
+                
+                space_data = torch.tensor([xs,ys,torch.zeros(len(xs))]).permute(1,0).unsqueeze(1)
+                state_data = self.space_to_state(space_data)
+                
+                xs,ys = state_data[:,0],state_data[:,1]
+                #xs,ys = interpolate.splev(np.linspace(0,25000,1000),tck)
+
+                # sample at 1000 points
+                plt.plot(xs,ys)
+        
+        
+        # finally, plot the stored y splines
+        
+        for key in self.yellow_splines.keys():
+            spl = self.yellow_splines[key]
+            
+            # sample spline
+            r = np.linspace(min(xs),max(xs),2000)
+            
+            y = interpolate.splev(r,spl)
+            
+            plt.plot(r,y)
+            
+            leg.append("{} yellow line spline".format(key))
+            
+        plt.legend(leg)
+
         
     def _convert_landmarks(self,space_dir):
         
@@ -1450,7 +2653,6 @@ class Curvilinear_Homography():
            name = list(self.correspondence.keys())[0]
        elif type(name) == list and len(name[0].split("_")) == 1:
            name = self.get_direction(points,name)[0]
-       
        n_pts = points.shape[1]
        # get directions and append to names
        
@@ -1497,7 +2699,7 @@ class Curvilinear_Homography():
         RETURN:     [d,m,3] array of points in space 
         """
         
-        points *= self.downsample
+        points_ds = points * self.downsample
         
         if heights is None:
             if classes is None: 
@@ -1505,13 +2707,13 @@ class Curvilinear_Homography():
             else:
                 heights = self.guess_heights(classes)
         if type(name) != list or len(name[0].split("_")) == 1:        
-            boxes  = self._im_sp(points,name = name, heights = 0)
+            boxes  = self._im_sp(points_ds,name = name, heights = 0)
             
             # get directions and append to names
-            name = self.get_direction(points,name)[0]
+            name = self.get_direction(boxes,name)[0]
             
         # recompute with correct directions
-        boxes = self._im_sp(points,name = name, heights = heights, refine_heights=refine_heights)
+        boxes = self._im_sp(points_ds,name = name, heights = heights, refine_heights=refine_heights)
         
         
         return boxes
@@ -1621,6 +2823,22 @@ class Curvilinear_Homography():
         new_pts[:,1] *= new_pts[:,5]
         
         new_pts[:,5] *= self.polarity
+        
+        if self.yellow_offsets is not None:
+            # shift so that yellow lines have constant y-position
+            bins = (new_pts[:,0] / 10).int()
+            bins = torch.clamp(bins,min = 0, max = len(self.yellow_offsets["WB"]))
+
+            bins = bins.data.cpu().numpy()
+            
+            eb_offsets = self.yellow_offsets["EB"][bins] -12
+            wb_offsets = self.yellow_offsets["WB"][bins] +12 
+            eb_mask = torch.where(new_pts[:,5] == 1, 1, 0).to("cpu")
+            wb_mask = 1- eb_mask
+            
+            yellow_offsets = wb_mask * wb_offsets + eb_mask * eb_offsets
+            yellow_offsets = yellow_offsets.to(new_pts.device)
+            new_pts[:,1] = new_pts[:,1] - yellow_offsets
 
         # 5. Final state space obtained
         return new_pts
@@ -1640,6 +2858,23 @@ class Curvilinear_Homography():
         points - [d,s] array of boxes in state space where s is state size (probably 6)
         
         """
+        
+        # 0. Un-offset points by yellow lines
+        if self.yellow_offsets is not None:
+            # shift so that yellow lines have constant y-position
+            bins = (points[:,0] / 10).int()
+            bins = torch.clamp(bins,min = 0, max = len(self.yellow_offsets["WB"]))
+
+            bins = bins.data.cpu().numpy()
+
+            eb_offsets = self.yellow_offsets["EB"][bins] -12
+            wb_offsets = self.yellow_offsets["WB"][bins] +12 
+            eb_mask = torch.where(points[:,5] == 1, 1, 0).to("cpu")
+            wb_mask = 1- eb_mask
+            
+            yellow_offsets = wb_mask * wb_offsets + eb_mask * eb_offsets
+            yellow_offsets = yellow_offsets.to(points.device)
+            points[:,1] = points[:,1] + yellow_offsets
         
         # 1. get x-y coordinate of closest point along spline (i.e. v = 0)
         
@@ -1725,7 +2960,7 @@ class Curvilinear_Homography():
         
         return new_pts
     
-    def get_direction(self,points,name = None):
+    def get_direction(self,points,name = None,method = "angle"):
         """
         Find closest point on spline. use relative x_coordinate difference (in state plane coords) to determine whether point is below spline (EB) or above spline (WB)
         
@@ -1735,14 +2970,31 @@ class Curvilinear_Homography():
         RETURN:   - [d] list of names with "EB" or "WB" added, best guess of which side of road object is on and which correspondence should be used
                   - [d] tensor of int with -1 if "WB" and 1 if "EB" per object
         """
-        
         mean_points = torch.mean(points, dim = 1).cpu()
         min_u  = self.closest_spline_point(mean_points)
         
-        spl_x,_ = interpolate.splev(min_u, self.median_tck)
+        if method == "x_position":
+            spl_x,_ = interpolate.splev(min_u, self.median_tck)
+            
+            direction = (torch.sign(torch.from_numpy(spl_x) - mean_points[:,0]).int().to(points.device))
         
-        direction = torch.sign(torch.from_numpy(spl_x) - mean_points[:,0]).int().to(points.device)
-        d_list = ["EB","WB"]
+        elif method == "angle":
+            spl_x,spl_y         =  interpolate.splev(min_u    , self.median_tck)
+            x_forward,y_forward =  interpolate.splev(min_u+250, self.median_tck)
+            
+            # now we have 3 points defining 2 vectors and one directioned angle
+            # vector A -  closest point -> 250 feet ahead on spline 
+            vec_A = torch.from_numpy(x_forward - spl_x) , torch.from_numpy( y_forward - spl_y)
+            
+            # vector B - closest point -> point
+            vec_B = mean_points[:,0] - spl_x, mean_points[:,1] - spl_y
+            
+            # if angle AB is in [0,180], object is on WB sidez, otherwise on EB side
+            # from https://stackoverflow.com/questions/2150050/finding-signed-angle-between-vectors
+            angle = torch.atan2( vec_A[0]*vec_B[1] - vec_A[1]*vec_B[0], vec_A[0]*vec_B[0] + vec_A[1]*vec_B[1] )
+            direction =  -1* torch.sign(angle).int().to(points.device)
+        
+        d_list = ["dummy which should never appear","EB","WB"]
         string_direction = [d_list[di.item()] for di in direction]
         
     
@@ -1841,7 +3093,7 @@ class Curvilinear_Homography():
         for idx, bbox_3d in enumerate(boxes):
             
             # check whether box mostly falls within frame
-            if torch.min(bbox_3d[:,0]) < -100 or torch.max(bbox_3d[:,0]) > 3940 or torch.min(bbox_3d[:,1]) < -100 or torch.max(bbox_3d[:,1]) > 2260:
+            if torch.min(bbox_3d[:,0]) < -1000 or torch.max(bbox_3d[:,0]) > 3840+1000 or torch.min(bbox_3d[:,1]) < -1000 or torch.max(bbox_3d[:,1]) > 2160+1000:
                 continue
             
             if type(color) == np.ndarray:
@@ -1950,10 +3202,44 @@ class Curvilinear_Homography():
         3. Transform the same set of boxes back into image, and get average pixel error
         """
         
+        if True:
+            print("___________________________________")
+            print("Test 0: Get Direction Test")
+            print("___________________________________")
+            
+            correct = 0
+            EB_incorrect = 0 # points on EB side that are incorrectly called WB
+            WB_incorrect = 0 # points on WB side that are incorrectly called EB
+            
+            for name in self.correspondence.keys():
+                corr = self.correspondence[name]
+                direction = name.split("_")[1]
+                #print(direction)
+                space_pts = torch.from_numpy(corr["space_pts"]).unsqueeze(1)
+                space_pts = torch.cat((space_pts,torch.zeros([space_pts.shape[0],1,1])), dim = -1)
+                
+                pred = self.get_direction(space_pts)[1]
+                
+                EB = torch.where(pred == 1,1,0).sum()
+                WB = torch.where(pred == -1,1,0).sum()
+                
+                if direction == "EB":
+                    correct += EB
+                    if "c3" not in name and "c4" not in name:
+                        EB_incorrect += WB
+
+                elif direction == "WB":
+                    correct += WB
+                    if "c3" not in name and "c4" not in name:
+                        WB_incorrect += EB
+                    
+            print("Correct side: {},   EB incorrect: {}, WB incorrect: {}".format(correct,EB_incorrect,WB_incorrect))
         
         ### Project each aerial imagery point into pixel space and get pixel error
         if True:
+            print("___________________________________")
             print("Test 1: Pixel Reprojection Error")
+            print("___________________________________")
             start = time.time()
             running_error = []
             for name in self.correspondence.keys():
@@ -1964,11 +3250,13 @@ class Curvilinear_Homography():
                 space_pts = torch.cat((space_pts,torch.zeros([space_pts.shape[0],1,1])), dim = -1)
                 
                 im_pts    = torch.from_numpy(corr["corr_pts"])
+                
+                #name = name.split("_")[0]
                 namel = [name for _ in range(len(space_pts))]
                 
                 proj_space_pts = self.space_to_im(space_pts,name = namel).squeeze(1)
                 error = torch.sqrt(((proj_space_pts - im_pts)**2).sum(dim = 1)).mean()
-                print("Mean error for {}: {}px".format(name,error))
+                #print("Mean error for {}: {}px".format(name,error))
                 running_error.append(error)   
             end = time.time() - start
             print("Average Pixel Reprojection Error across all homographies: {}px in {} sec\n".format(sum(running_error)/len(running_error),end))
@@ -1976,7 +3264,9 @@ class Curvilinear_Homography():
         
         ### Project each camera point into state plane coordinates and get ft error
         if True:
+            print("___________________________________")
             print("Test 2: State Reprojection Error")
+            print("___________________________________")
             running_error = []
             
             all_im_pts = []
@@ -2023,8 +3313,9 @@ class Curvilinear_Homography():
             print("Mean State-Space-State Error: {}ft\n".format(mean_error))
         
         if True:
+            print("___________________________________")
             print("Test 3: Random Box Reprojection Error (State-Im-State)")
-            
+            print("___________________________________")
             all_im_pts = torch.cat(all_im_pts,dim = 0)
             start = time.time()
             state_pts = self.im_to_state(all_im_pts, name = all_cam_names, heights = 0,refine_heights = False)
@@ -2058,8 +3349,9 @@ class Curvilinear_Homography():
         
         
         if True:
-            print("Test 3: Random Box Reprojection Error (Im-State-Im)")
-
+            print("___________________________________")
+            print("Test 4: Random Box Reprojection Error (Im-State-Im)")
+            print("___________________________________")
             repro_im_boxes = self.state_to_im(repro_state_boxes, name = all_cam_names)
             
             error = torch.abs(repro_im_boxes-im_boxes)
@@ -2068,7 +3360,7 @@ class Curvilinear_Homography():
         
         if False: 
             #plot some boxes
-            for pole in [26,38]:
+            for pole in [1,2,3,4,5,6]:
                 for camera in range(1,7):
                     try:
                         # pole = 40
@@ -2108,17 +3400,25 @@ class Curvilinear_Homography():
 if __name__ == "__main__":
     #im_dir = "/home/derek/Documents/i24/i24_homography/data_real"
     #space_dir = "/home/derek/Documents/i24/i24_homography/aerial/to_P24"
-    save_file =  "P01_P40b.cpkl"
+    #save_file =  "P01_P40b.cpkl"
 
-    im_dir = "/home/derek/Data/MOTION_HOMOGRAPHY_FINAL"
+    #im_dir = "/home/derek/Data/MOTION_HOMOGRAPHY_FINAL"
     space_dir = "/home/derek/Documents/i24/i24_homography/aerial/all_poles_aerial_labels"
+    #space_dir = "/home/derek/Documents/i24/i24_homography/shifted_aerial_points"
 
-    hg = Curvilinear_Homography(save_file = save_file,space_dir = space_dir, im_dir = im_dir)
     
+    save_file = "CIRCLES_20_Wednesday_20230503.cpkl"
+    #im_dir = "/home/derek/Data/homo/working"
+    im_dir = "/home/derek/Data/homo/CIRCLES_20_Wednesday_20230503"
+
+    hg = Curvilinear_Homography(save_file = save_file,space_dir = space_dir, im_dir = im_dir,downsample = 1)
+
+    hg._generate_lane_offset(space_dir,SHIFT = False,SPLINE_OFFSET = False)
     hg._convert_landmarks(space_dir)
-    hg.test_transformation(im_dir)
+    hg.test_transformation(im_dir+"/4K")
+
     #hg._generate_extents_file(im_dir)
-    hg._generate_mask_images(im_dir)
+    #hg._generate_mask_images(im_dir,mask_save_dir = "/home/derek/Data/ICCV_2023/masks/scene3")
     #hg._generate_extents_file(im_dir,mode = "", output_path = "cam_extents_polygon.json")
-    #hg._generate_lane_offset(space_dir)
-    #hg._fit_MM_offset(space_dir)
+    hg._fit_MM_offset(space_dir)
+    hg.save(save_file)
