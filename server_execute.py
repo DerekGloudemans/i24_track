@@ -557,10 +557,16 @@ if __name__ == "__main__":
     trackID = ''
     vidPath = ''
         
-    if socket.gethostname() == "videonode2":
-        trackID = "633c5e8bfc34583315cd6bed"
+    if socket.gethostname() == "auxprocess1" or socket.gethostname() == "devvideo1":
+        #trackID = "633c5e8bfc34583315cd6bed"
+        #vidPath = "/data/video/current/{}".format(trackID)
+       
+        trackID = "637443758b5b68fc4fd40c76"
         vidPath = "/data/video/current/{}".format(trackID)
-    __process_entry__(vidPath = vidPath,trackID=trackID)#cams=["P11C06","P08C06","P09C06","P10C06","P13C06","P12C06","P11C03","P08C04","P09C03","P10C03","P13C03","P12C03"])
+        trackID = "650210b0069d4dc9ee0877ce" # temp to not overwrite data
+        
+        
+    __process_entry__(vidPath = vidPath,trackID=trackID,cams=["P11C06","P08C06","P09C06","P10C06","P13C06","P12C06","P11C03","P08C04","P09C03","P10C03","P13C03","P12C03"])
     
     # if True:
     #     import cv2

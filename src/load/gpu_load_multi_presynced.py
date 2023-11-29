@@ -309,7 +309,7 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
     else:
         mask_path = "/remote/i24_code/tracking/data/mask/{}_mask_1080.png".format(camera)
     mask_im = np.asarray(Image.open(mask_path))
-    mask_im = torch.from_numpy(mask_im) 
+    mask_im = torch.from_numpy(mask_im.copy()) 
     mask_im = torch.clamp(mask_im.to(gpuID).unsqueeze(0).expand(3,mask_im.shape[0],mask_im.shape[1]),min = 0, max = 1)
     logger.info("{} mask im shape: {}. Max value {}".format(mask_path,mask_im.shape,torch.max(mask_im)))
     
@@ -389,11 +389,13 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
             
                 # Convert to RGB planar because that's what to_tensor + normalize are doing;
                 rgb_planar = to_planar.Execute(rgb_byte, cc_ctx)
-            
+                
                 # likewise, end of video file
                 if rgb_planar.Empty():
                     break
-                
+                rgb_planar = rgb_planar.Clone(gpuID)
+
+
                 # Create torch tensor from it and reshape because
                 # pnvc.makefromDevicePtrUint8 creates just a chunk of CUDA memory
                 # and then copies data from plane pointer to allocated chunk;
@@ -413,10 +415,16 @@ def load_queue_continuous_vpf(q,directory,device,buffer_size,resize,start_time,H
                 # Normalize to range desired by NN. Originally it's 
                 surface_tensor = surface_tensor.type(dtype=torch.cuda.FloatTensor)/255.0
                  
-               
+                if False: # write frame so we can get all inspecty on it
+                    outim = (surface_tensor.permute(1,2,0).clone().cpu().data.numpy()*255).astype(np.uint8)
+                    cv2.imwrite("/remote/home/glouded/phantom_car_test/{}_{}.png".format(camera,str(returned_counter).zfill(4)), outim)
                 
                 # apply normalization
                 surface_tensor = F.normalize(surface_tensor,mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+                
+                
+                
+                
                 
                 frame = (surface_tensor,ts)
                 

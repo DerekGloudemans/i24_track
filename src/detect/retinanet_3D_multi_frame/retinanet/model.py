@@ -366,7 +366,7 @@ class ResNet(nn.Module):
         elif MULTI_FRAME:
             transformed_anchors = self.regressBoxes(anchors, regression)
 
-            imIndexes = torch.tensor([i for i in range(len(transformed_anchors))]).unsqueeze(1).repeat(1,transformed_anchors.shape[1])
+            imIndexes = torch.tensor([i for i in range(len(transformed_anchors))],device = classification.device).unsqueeze(1).repeat(1,transformed_anchors.shape[1])
             
             # flatten transformed anchors and classifications and imIndexes
             imIndexes = imIndexes.reshape(-1)
